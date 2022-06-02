@@ -240,7 +240,7 @@ class Peaks(MutableSequence):
 class NmrBase:
     def __init__(self, box: Box):
         self.peaks: Peaks = Peaks(self)
-        self.box = box.get_duplicate()
+        self.box = box.duplicate()
         self.data = Data(self)
         self.ref: Dict[str, float] = {}
 
@@ -383,9 +383,9 @@ class NmrBase:
     def assign(self, label=None):
         avg_mulcos = Box().bind(self.box.pack_average(keys_for_atoms=["isotropic"]))
         if label is None:
-            _confs = avg_mulcos.pack()
+            _confs = avg_mulcos.mols
         else:
-            _confs = avg_mulcos.pack().labels[label]
+            _confs = avg_mulcos.mols.labels[label]
         for _c in _confs:
             for _pk in self.peaks:
                 if _pk.calcs.get(_c.name) is not None:

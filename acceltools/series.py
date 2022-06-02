@@ -50,9 +50,9 @@ def _remove_hydrogen(bonds: Set[Tuple[int]], atoms: Atoms) -> Set[Tuple[int]]:
     return non_h_set
 
 
-class Series:
-    def __init__(self, mulcos: Box) -> None:
-        self.mulcos = mulcos
+class SeriesBox:
+    def __init__(self, box: Box) -> None:
+        self.box = box
 
     def modify_length(
         self,
@@ -70,20 +70,20 @@ class Series:
         target = begin
         count = 0
         while target < end:
-            mc = Box().bind(self.mulcos.pack()).get_duplicate()
+            mc = Box().bind(self.box.mols).duplicate()
             mc.modify_length(number_a, number_b, target, fix_a, fix_b, numbers_along_with_a, numbers_along_with_b)
-            for _c in mc.pack():
+            for _c in mc.mols:
                 _c.name = f"{_c.name}_{count:03d}"
-            ret_list.extend(mc.pack().to_list())
+            ret_list.extend(mc.mols.to_list())
             target += step
             count += 1
         return Box(ret_list)
 
     def calc_length(self, all=False, key: str = "L_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mulcos.pack().labels.values():
+        for confs in self.box.mols.labels.values():
             label_mc = Box(confs)
-            _atoms = label_mc.pack().get().atoms
+            _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
@@ -95,9 +95,9 @@ class Series:
 
     def calc_angle(self, all=False, key: str = "A_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mulcos.pack().labels.values():
+        for confs in self.box.mols.labels.values():
             label_mc = Box(confs)
-            _atoms = label_mc.pack().get().atoms
+            _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
@@ -109,9 +109,9 @@ class Series:
 
     def calc_dihedral(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mulcos.pack().labels.values():
+        for confs in self.box.mols.labels.values():
             label_mc = Box(confs)
-            _atoms = label_mc.pack().get().atoms
+            _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
@@ -123,16 +123,16 @@ class Series:
 
     def calc_dihedral_xy(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mulcos.pack().labels.values():
+        for confs in self.box.mols.labels.values():
             label_mc = Box(confs)
-            _atoms = label_mc.pack().get().atoms
+            _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
             for dhs in _get_dihedral_set(_bonds):
                 xkey = f"X{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
                 ykey = f"Y{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
-                for _c in label_mc.pack():
+                for _c in label_mc.mols:
                     d_degree = get_dihedral(
                         _c.atoms.get(dhs[0]), _c.atoms.get(dhs[1]), _c.atoms.get(dhs[2]), _c.atoms.get(dhs[3])
                     )

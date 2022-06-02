@@ -22,11 +22,11 @@ def _marker_generator(maker: str = None):
             yield markers[i - 1]
 
 
-class Chart:
-    def __init__(self, mulcos: Box) -> None:
-        self.mulcos: Box = mulcos
+class ChartBox:
+    def __init__(self, box: Box) -> None:
+        self.box: Box = box
 
-    def diagram(
+    def plot_diagram(
         self,
         filepath: Path,
         diagram_roles: List[str] = ["reactant", "ts", "product"],
@@ -35,7 +35,7 @@ class Chart:
         connection_key: str = "diagram_connection",
     ):
 
-        _ze = min(_c.energy for _c in self.mulcos.pack().has_data(role_key, diagram_roles[zero_role_index]))
+        _ze = min(_c.energy for _c in self.box.mols.has_data(role_key, diagram_roles[zero_role_index]))
 
         fig = plt.figure()
         ax: Axes = fig.add_subplot(1, 1, 1)
@@ -44,7 +44,7 @@ class Chart:
         x_values = {_key: [(i * 2) + 1, (i * 2) + 2] for i, _key in enumerate(diagram_roles)}
         ploted_conf: List[Mol] = []
         for _role in diagram_roles:
-            for _confs in Box(self.mulcos.pack().has_data(role_key, _role)).pack().labels.values():
+            for _confs in Box(self.box.mols.has_data(role_key, _role)).mols.labels.values():
                 ploted_conf.append(sorted(_confs, key=lambda t: t.energy)[0])
 
         for _c in ploted_conf:
@@ -97,7 +97,7 @@ class Chart:
         logger.info(f"{str(_png)} was ploted")
         return _png
 
-    def scatter(
+    def plot_scatter(
         self,
         filepath: Path,
         x_key: str = None,
@@ -113,7 +113,7 @@ class Chart:
         ax.tick_params(direction="in")
         maker = _marker_generator(marker)
         _legend = []
-        for label, _confs in self.mulcos.pack().labels.items():
+        for label, _confs in self.box.mols.labels.items():
             _x = [_c.energy for _c in _confs]
             ax.set_xlabel("Energy")
             _y = [_c.energy for _c in _confs]
