@@ -1,54 +1,32 @@
-import copy
 import csv
-from collections import defaultdict
 from collections.abc import MutableSequence
 from copy import deepcopy
+from ctypes import Union
 from pathlib import Path
-from statistics import mean
-from typing import Dict, Iterator, List, Union
+from typing import Iterator
 
 import numpy as np
 from accel.base.box import Box
-from accel.base.tools import make_dir
+from accel.base.mols import Mol, Mols
 from accel.util.constants import Elements
 from accel.util.datadict import Data
 from accel.util.log import logger
+from acceltools.base import ToolBox
 from scipy import stats
 
-from acceltools.parameters import Factor
 
-
-def _r_str(val):
-    if isinstance(val, dict):
-        return {_k: _r_str(_v) for _k, _v in val.items()}
-    elif isinstance(val, list):
-        return [_r_str(_v) for _v in val]
-    else:
-        return str(val)
-
-
-class CalcValues:
-    def __init__(self, init_value: float):
-        self.raw: float = init_value
-        self.val: float = init_value
-        self.tmp: float = init_value
-        self.saved: Dict[str, float] = {}
-        self.swap_flag: bool = False
-        self.tmp_swap_flag: float = init_value
-
-
-class Shift:
-    def __init__(self, expt_value: float):
-        self.expt = float(expt_value)
-        self._nuclei: str = ""
-        self.name = ""
-        self.atom_numbers = []
-        self.is_sp2 = False
-        self.iso_shift: "Shift" = None
-        self.root_shift: "Shift" = None
-        self.calcs: Dict[str, CalcValues] = {}
-        self.data = Data(self)
-        self.cache = {}
+class Peak:
+    def __init__(self) -> None:
+        self.val: float = None
+        self.name: str = None
+        self.numbers: list[int] = []
+        self.dtopic: "Peak" = None
+        self.shape: str = None
+        self.is_sp3: bool = True
+        self.jvalues: list[float] = []
+        self.swapped_flag: bool = False
+        self.root: "Peak" = None
+        self.corrs: list["Peak"] = []
 
     @property
     def nuclei(self):
@@ -58,31 +36,26 @@ class Shift:
     def nuclei(self, value):
         self._nuclei = Elements.canonicalize(value)
 
-    def duplicate(self, parent_obj=None):
+    def show(self):
+        return self
+
+    def duplicate(self):
         return deepcopy(self)
 
 
 class Peaks(MutableSequence):
-    def __init__(self, parent_obj=None):
-        self._peaks: List[Shift] = []
-        self._parent: Nmr = parent_obj
-        super().__init__()
-
-    def _new_peak(self, value) -> Shift:
-        if isinstance(value, Shift):
-            return value
-        else:
-            raise TypeError
+    def __init__(self, label: str = "") -> None:
+        self._peaks: list[Peak] = []
+        self.label: str = label
 
     def __str__(self):
-        return f"object including {len(self._peaks)} peaks"
+        return f"{self.label}: {len(self._peaks)} peaks"
 
     def __getitem__(self, index):
         return self._peaks[index]
 
     def __setitem__(self, index, value):
-        _n = self._new_peak(value)
-        self._peaks[index] = _n
+        self._peaks[index] = value
 
     def __delitem__(self, index):
         del self._peaks[index]
@@ -90,522 +63,564 @@ class Peaks(MutableSequence):
     def __len__(self):
         return len(self._peaks)
 
-    def __iter__(self) -> Iterator[Shift]:
+    def __iter__(self) -> Iterator[Peak]:
         return super().__iter__()
 
-    def get_keys(self) -> List[str]:
-        keys = set()
-        for _pk in self._peaks:
-            keys = keys.union(set(_pk.calcs.keys()))
-        return sorted(list(keys))
+    def insert(self, index: int, value):
+        self._peaks.insert(index, value)
 
-    def add(self, other: Union[Dict[str, float], float]) -> "Peaks":
-        if isinstance(other, float):
-            other = {_key: other for _key in self.get_keys()}
-        for _key, _val in other.items():
-            for _pk in self._peaks:
-                _pk.calcs[_key].val = _pk.calcs[_key].val + float(_val)
+    def bind(self, peaks: list[Peak]):
+        self._peaks = peaks
         return self
 
-    def sub(self, other: Union[Dict[str, float], float]) -> "Peaks":
-        if isinstance(other, float):
-            other = {_key: other for _key in self.get_keys()}
-        for _key, _val in other.items():
-            for _pk in self._peaks:
-                _pk.calcs[_key].val = _pk.calcs[_key].val - float(_val)
+    def show(self):
         return self
 
-    def mul(self, other: Union[Dict[str, float], float]) -> "Peaks":
-        if isinstance(other, float):
-            other = {_key: other for _key in self.get_keys()}
-        for _key, _val in other.items():
-            for _pk in self._peaks:
-                _pk.calcs[_key].val = _pk.calcs[_key].val * float(_val)
-        return self
-
-    def div(self, other: Union[Dict[str, float], float]) -> "Peaks":
-        if isinstance(other, float):
-            other = {_key: other for _key in self.get_keys()}
-        for _key, _val in other.items():
-            for _pk in self._peaks:
-                _pk.calcs[_key].val = _pk.calcs[_key].val / float(_val)
-        return self
-
-    def pow(self, other: Union[Dict[str, float], float]) -> "Peaks":
-        if isinstance(other, float):
-            other = {_key: other for _key in self.get_keys()}
-        for _key, _val in other.items():
-            for _pk in self._peaks:
-                _pk.calcs[_key].val = _pk.calcs[_key].val ** float(_val)
-        return self
-
-    def scaling(self, factors: Dict[str, Factor]) -> "Peaks":
-        self.mul({_k: _f.slope for _k, _f in factors.items()})
-        self.add({_k: _f.intercept for _k, _f in factors.items()})
-        return self
-
-    def insert(self, index: int, value) -> Shift:
-        _n = self._new_peak(value)
-        self._peaks.insert(index, _n)
-        return _n
+    def copy(self) -> "Peaks":
+        _new = Peaks()
+        _new.label = self.label
+        return _new
 
     def duplicate(self) -> "Peaks":
-        _n = Peaks(self._parent)
-        _n._peaks = [_pk.duplicate() for _pk in self._peaks]
-        return _n
+        return self.copy().bind([_pk.duplicate() for _pk in self._peaks])
 
-    def has_nuclei(self, nuclei_symbol) -> "Peaks":
-        nuclei_symbol = Elements.canonicalize(nuclei_symbol)
-        _n = Peaks(self._parent)
-        _n._peaks = [_pk for _pk in self._peaks if _pk.nuclei == nuclei_symbol]
-        return _n
+    @property
+    def vals(self) -> list[float]:
+        return [_pk.val for _pk in self._peaks]
 
-    def has_sp2(self, is_sp2=True) -> "Peaks":
-        _n = Peaks(self._parent)
-        _n._peaks = [_pk for _pk in self._peaks if _pk.is_sp2 == is_sp2]
-        return _n
+    @property
+    def nuclei(self) -> dict[str, "Peaks"]:
+        peaks_dict: dict[str, "Peaks"] = {}
+        for _p in self:
+            peaks_dict[_p.nuclei] = None
+        for key in [peaks_dict.keys()]:
+            peaks_dict[key] = self.copy().bind([_pk for _pk in self._peaks if _pk.nuclei == key])
+        return peaks_dict
 
-    def get_expt(self) -> List[float]:
-        return [_pk.expt for _pk in self._peaks]
+    def abs(self):
+        for _p in self._peaks:
+            _p.val = abs(_p.val)
+        return self
 
-    def get_calcs(self) -> Dict[str, List[float]]:
-        calcs_dict = {_k: list() for _k in self.get_keys()}
-        for _pk in self._peaks:
-            for _k in calcs_dict:
-                calcs_dict[_k].append(_pk.calcs[_k].val)
-        return calcs_dict
+    def __abs__(self):
+        return self.duplicate().abs()
 
-    def get_errors(self) -> Dict[str, List[float]]:
-        calcs_dict = {_k: list() for _k in self.get_keys()}
-        for _pk in self._peaks:
-            for _k in calcs_dict:
-                calcs_dict[_k].append(_pk.calcs[_k].val - _pk.expt)
-        return calcs_dict
+    def add(self, value: float):
+        value = float(value)
+        for _p in self._peaks:
+            _p.val += value
+        return self
 
-    def get_nucleis(self) -> Dict[str, "Peaks"]:
-        keys = set()
-        for _pk in self._peaks:
-            keys.add(_pk.nuclei)
-        ret_dict = {_k: self.has_nuclei(_k) for _k in sorted(list(keys))}
-        return ret_dict
+    def __add__(self, value: float):
+        return self.duplicate().add(value)
 
-    def get_factors(self) -> Dict[str, Factor]:
-        factors = {_k: Factor() for _k in self.get_keys()}
-        for _key, _fac in factors.items():
-            (
-                _fac.slope,
-                _fac.intercept,
-                _fac.r_value,
-                _fac.p_value,
-                _fac.std_err,
-            ) = stats.linregress(self.get_calcs()[_key], self.get_expt())
+    def __radd__(self, value: float):
+        return self.duplicate().add(value)
 
-        abs_errs = {_k: 0.0 for _k in self.get_keys()}
-        sqr_errs = {_k: 0.0 for _k in self.get_keys()}
-        for _pk in self._peaks:
-            for _key, _val in _pk.calcs.items():
-                abs_errs[_key] += abs(_val.val - _pk.expt)
-                sqr_errs[_key] += (_val.val - _pk.expt) ** 2
-        for _key, _fac in factors.items():
-            _fac.mae = abs_errs[_key] / len(self._peaks)
-            _fac.rmse = (sqr_errs[_key] / len(self._peaks)) ** 0.5
-        return factors
+    def mul(self, value: float):
+        value = float(value)
+        for _p in self._peaks:
+            _p.val *= value
+        return self
 
-    def get_t_probability(self, param: Factor, int_degree=False):
-        if len(self._peaks) == 0:
+    def __mul__(self, value: float):
+        return self.duplicate().mul(value)
+
+    def __rmul__(self, value: float):
+        return self.duplicate().mul(value)
+
+    def sub(self, value: float):
+        value = float(value)
+        for _p in self._peaks:
+            _p.val -= value
+        return self
+
+    def __sub__(self, value: float):
+        return self.duplicate().sub(value)
+
+    def __rsub__(self, value: float):
+        return self.duplicate().mul(-1).add(value)
+
+    def div(self, value: float):
+        value = float(value)
+        for _p in self._peaks:
+            _p.val = _p.val / value
+        return self
+
+    def __div__(self, value: float):
+        return self.duplicate().div(value)
+
+    def pow(self, value: float):
+        value = float(value)
+        for _p in self._peaks:
+            _p.val = _p.val**value
+        return self
+
+    def __pow__(self, value: float):
+        return self.duplicate().pow(value)
+
+    def has_nuclei(self, symbol) -> "Peaks":
+        symbol = Elements.canonicalize(symbol)
+        return self.copy().bind([_pk for _pk in self._peaks if _pk.nuclei == symbol])
+
+    def has_sp3(self, is_sp3=True) -> "Peaks":
+        return self.copy().bind([_pk for _pk in self._peaks if _pk.is_sp3 == is_sp3])
+
+
+def check_identity(peaks_a: Peaks, peaks_b: Peaks) -> bool:
+    return True
+
+
+def get_expt(experiment_csv_file: Union[str, Path], ver: int = 2) -> Peaks:
+    _path = Path(experiment_csv_file)
+    with _path.open() as f:
+        _ls = [_l for _l in csv.reader(f)]
+    _peaks = Peaks(_path.stem)
+    if ver == 1:
+        for _l in _ls:
+            _pk = Peak(_l[0])
+            _pk.name = _l[1]
+            _pk.numbers = [int(i) for i in _l[2].split()]
+            _pk.is_sp3 = bool(_l[5])
+            _pk.nuclei = _l[6]
+            _peaks.append(_pk)
+        for _i, _l in enumerate(_ls):
+            if _l[3] != "":
+                _peaks[_i].dtopic = _peaks[int(_l[3]) - 1]
+            if _l[4] != "":
+                _peaks[_i].root = _peaks[int(_l[4]) - 1]
+    elif ver == 2:
+        index_list = []
+        for _id, _l in enumerate(_ls):
+            index_list.append(_l[0])
+            _pk = Peak(_l[1])
+            _pk.name = _l[2]
+            _pk.numbers = [int(i) for i in _l[3].split()]
+            _pk.is_sp3 = bool(_l[6])
+            _pk.nuclei = _l[7]
+            _peaks.append(_pk)
+        for _id, _l in enumerate(_ls):
+            if _l[4] != "":
+                _peaks[_id].dtopic = _peaks(index_list.index(int(_l[4])))
+            if _l[5] != "":
+                _peaks[_id].root = _peaks(index_list.index(int(_l[5])))
+    return _peaks
+
+
+def get_tensor(mol: Mol, key: str = "isotropic") -> Peaks:
+    _peaks = Peaks(mol.name)
+    for _a in mol.atoms:
+        _p = Peak()
+        _p.val = _a.data[key]
+        _p.numbers = [_a.number]
+        _peaks.append(_p)
+    return _peaks
+
+
+def get_shifts(tensor: Peaks, shielding_constant: dict[str, float], sloping: bool = False) -> Peaks:
+    calc_peaks = tensor.duplicate()
+    for peak in calc_peaks:
+        ref = shielding_constant.get(peak.nuclei)
+        if ref is None:
+            continue
+        if sloping:
+            peak.val = (ref - peak.val) / (1 - (ref / (10 ^ 6)))
+        else:
+            peak.val = ref - peak.val
+    return calc_peaks
+
+
+def get_shifts_by_csv(tensor: Peaks, reference_csv_file: Union[str, Path], sloping: bool = False) -> Peaks:
+    refs: dict[str, float] = {}
+    with Path(reference_csv_file).open() as f:
+        for _l in csv.reader(f):
+            refs[Elements.canonicalize(_l[0])] = float(_l[1]) + float(_l[2])
+    logger.info(f"NMR: {Path(reference_csv_file).absolute()} was loaded")
+    logger.info(f"reference: {refs}")
+    return get_shifts(tensor=tensor, references=refs, sloping=sloping)
+
+
+def get_scaled(peaks: Peaks, slope: float, intercept: float):
+    # scaled = (input - intercept) / slope
+    return (peaks.duplicate() - intercept) / slope
+
+
+def get_assigned(peaks: Peaks, expt: Peaks) -> Peaks:
+    assigned_peaks = expt.duplicate()
+    assigned_peaks.label = peaks.label
+    for peak in assigned_peaks:
+        peak.val = np.mean([calc_peak.val for calc_peak in peaks if calc_peak.numbers[0] in peak.numbers])
+    return assigned_peaks
+
+
+def get_factors(peaks: Peaks, expt: Peaks):
+    # expt = (peaks - intercept) / slope
+    check_identity(expt, peaks)
+    _slope, _intercept, _rval = stats.linregress(expt.vals, peaks.vals)
+    _slope: float = _slope
+    _intercept: float = _intercept
+    _rval: float = _rval
+    return _slope, _intercept, _rval
+
+
+def get_swapped(assigned: Peaks, expt: Peaks) -> Peaks:
+    swapped = assigned.duplicate()
+    for e_peak in [_p for _p in expt if _p.dtopic is not None]:
+        if e_peak.root in expt:
+            continue
+        if e_peak is not e_peak.dtopic.dtopic:
+            logger.error(f"{e_peak.name} and {e_peak.dtopic.name} are not related")
             return None
-        t_probs = {_k: 1.0 for _k in self.get_keys()}
-        for _pk in self._peaks:
-            for _key, _cal in _pk.calcs.items():
-                _err = _cal.val - _pk.expt
-                if int_degree:
-                    t_probs[_key] *= stats.t.sf(abs(_err - param.mean) / param.stdev, int(param.degree))
-                else:
-                    t_probs[_key] *= stats.t.sf(abs(_err - param.mean) / param.stdev, param.degree)
-        logger.info(f"Survival function of Students t distribution was calculated: {t_probs}")
-        return t_probs
-
-    def get_n_probability(self, param: Factor):
-        if len(self._peaks) == 0:
+        if e_peak.val > e_peak.dtopic.val:
+            is_large = True
+        elif e_peak.val == e_peak.dtopic.val:
+            continue
+        else:
+            is_large = False
+        a_peak = swapped[expt.index(e_peak)]
+        a_peak_dtopic = swapped[expt.index(e_peak.dtopic)]
+        if a_peak.swapped_flag is True:
+            continue
+        if is_large ^ (a_peak.val > a_peak_dtopic.val):
+            a_peak.val, a_peak_dtopic.val = a_peak_dtopic.val, a_peak.val
+            a_peak.swapped_flag = True
+            a_peak_dtopic.swapped_flag = True
+            logger.info(f"peak  {a_peak.name} and {a_peak.dtopic.name} are swaped")
+    for e_peak in [_p for _p in expt if _p.root is not None]:
+        if e_peak is not e_peak.dtopic.dtopic:
+            logger.error(f"{e_peak.name} and {e_peak.dtopic.name} are not related")
             return None
-        n_probs = {_k: 1.0 for _k in self.get_keys()}
-        for _pk in self._peaks:
-            for _key, _cal in _pk.calcs.items():
-                _err = _cal.val - _pk.expt
-                n_probs[_key] *= stats.norm.sf(abs(_err - param.mean) / param.stdev)
-        logger.info(f"Survival function of Students t distribution was calculated: {n_probs}")
-        return n_probs
+        if e_peak.root.swapped_flag is False:
+            continue
+        a_peak = swapped[expt.index(e_peak)]
+        a_peak_dtopic = swapped[expt.index(e_peak.dtopic)]
+        if a_peak.swapped_flag is True:
+            continue
+        a_peak.val, a_peak_dtopic.val = a_peak_dtopic, a_peak.val
+        a_peak.swapped_flag = True
+        a_peak_dtopic.swapped_flag = True
+        logger.info(f"peak  {a_peak.name} and {a_peak.dtopic.name} are swaped")
+    return swapped
 
 
-class NmrBase:
-    def __init__(self, box: Box):
-        self.peaks: Peaks = Peaks(self)
-        self.box = box.duplicate()
+def export_peak(peaks: Peaks, filepath: Union[str, Path] = None) -> Path:
+    keys = ["Shift", "Name", "Nuclei", "Number", "sp2"]
+    vals_dicts = []
+    for _p in peaks:
+        dicts = {
+            "Shift": _p.val,
+            "Name": _p.name,
+            "Nuclei": _p.nuclei,
+            "Number": _p.numbers,
+            "sp3": _p.is_sp3,
+        }
+        vals_dicts.append(dicts)
+    if filepath is None:
+        filepath = Path.cwd().joinpath(peaks.label)
+    _p = Path(filepath).with_suffix(".csv")
+    with _p.open("w", newline="") as f:
+        _w = csv.DictWriter(f, keys)
+        _w.writeheader()
+        for _val in vals_dicts:
+            _w.writerow(_val)
+    return filepath
+
+
+def get_t_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: float = 0.0, degree: float = 0.0):
+    check_identity(assigned, expt)
+    t_probs = 1.0
+    for idx in range(expt):
+        _err = assigned[idx].val - expt[idx].val
+        t_probs *= stats.t.sf(abs(_err - mean) / stdev, degree)
+    logger.info(f"Survival function of Students t distribution was calculated: {t_probs}")
+    return float(t_probs)
+
+
+def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: float = 0.0):
+    check_identity(assigned, expt)
+    n_probs = 1.0
+    for idx in range(expt):
+        _err = assigned[idx].val - expt[idx].val
+        n_probs *= stats.norm.sf(abs(_err - mean) / stdev)
+    logger.info(f"Survival function of normal distribution was calculated: {n_probs}")
+    return float(n_probs)
+
+
+class NmrBox(ToolBox):
+    def __init__(self, value: Union[Box, Mols], tensor_key="isotropic"):
+        self.expt: Peaks = None
+        self.tensor: list[Peaks] = []
+        self._shift: list[Peaks] = []
+        self._assigned: list[Peaks] = []
+        self._shift_for_analysis: list[Peaks] = []
+        self._assigned_for_analysis: list[Peaks] = []
         self.data = Data(self)
-        self.ref: Dict[str, float] = {}
+        self.tensor_key = tensor_key
+        self.analyzing = False
+        for _c in self.mols:
+            self.tensor.append(get_tensor(_c, key=self.tensor_key))
+        super().__init__(value)
 
-    def __str__(self):
-        return f"NMR ({len(self.peaks)} peaks)"
+    @property
+    def shift(self) -> list[Peaks]:
+        if self.analyzing:
+            return self._shift_for_analysis
+        return self._shift
 
-    def save(self, keyword: str = None):
-        if keyword is None:
-            for _pk in self.peaks:
-                for _key in _pk.calcs:
-                    _pk.calcs[_key].tmp = _pk.calcs[_key].val
-                    _pk.calcs[_key].tmp_swap_flag = _pk.calcs[_key].swap_flag
+    @shift.setter
+    def shift(self, value: list[Peaks]):
+        if self.analyzing:
+            self._shift_for_analysis = value
         else:
-            for _pk in self.peaks:
-                for _key in _pk.calcs:
-                    _pk.calcs[_key].saved[keyword] = _pk.calcs[_key].val
-        return self
+            self._shift = value
 
-    def restore(self):
-        for _pk in self.peaks:
-            for _key in _pk.calcs:
-                _pk.calcs[_key].val = _pk.calcs[_key].tmp
-        return self
+    @property
+    def assigned(self) -> list[Peaks]:
+        if self.analyzing:
+            return self._assigned_for_analysis
+        return self._assigned
 
-    def reset(self):
-        for _pk in self.peaks:
-            for _key in _pk.calcs:
-                _pk.calcs[_key].val = _pk.calcs[_key].raw
-                _pk.calcs[_key].swap_flag = False
-        return self
-
-    def export_data(self, filepath):
-        registered_dict = {}
-
-        def _unpack_dict(parent_list: list, obj: list):
-            if isinstance(obj, dict):
-                for key, val in obj.items():
-                    _unpack_dict(parent_list + [key], val)
-            else:
-                registered_dict[tuple(parent_list)] = obj
-
-        _unpack_dict([], self.data._data)
-        sorted_dict = defaultdict(dict)
-        label_set = set()
-        for key, val in registered_dict.items():
-            sorted_dict[key[:-1]][key[-1]] = val
-            label_set.add(key[-1])
-
-        _p = Path(filepath).with_suffix(".csv")
-        with _p.open("w", newline="") as f:
-            _w = csv.DictWriter(f, [""] + sorted(list(label_set)))
-            _w.writeheader()
-            for _key, _val in sorted_dict.items():
-                _val[""] = " | ".join(_key)
-                _w.writerow(_val)
-        logger.info(f"NMR: {_p.name} was created")
-        return self
-
-    def export_peaks(self, filepath):
-        keys = ["Shift", "Name", "Nuclei", "Number", "sp2"]
-
-        def keys_append(val: str):
-            if val not in keys:
-                keys.append(val)
-
-        vals_dicts = []
-        for peak in self.peaks:
-            dicts = {
-                "Shift": peak.expt,
-                "Name": peak.name,
-                "Nuclei": peak.nuclei,
-                "Number": peak.atom_numbers,
-                "sp2": peak.is_sp2,
-            }
-            for _k, _v in peak.calcs.items():
-                dicts[_k + " | raw"] = _v.raw
-                keys_append(_k + " | raw")
-                dicts[_k + " | val"] = _v.val
-                keys_append(_k + " | val")
-                for _saved_key, _saved_val in _v.saved.items():
-                    dicts[_k + " | " + _saved_key] = _saved_val
-                    keys_append(_k + " | " + _saved_key)
-            vals_dicts.append(dicts)
-        _p = Path(filepath).with_suffix(".csv")
-        with _p.open("w", newline="") as f:
-            _w = csv.DictWriter(f, keys)
-            _w.writeheader()
-            for _val in vals_dicts:
-                _w.writerow(_val)
-        logger.info(f"NMR: {_p.name} was created")
-        return self
-
-    def load_expt(self, csv_path, ver=2):
-        with Path(csv_path).open() as f:
-            _ls = [_l for _l in csv.reader(f)]
-        if ver == 1:
-            for _l in _ls:
-                _sh = Shift(_l[0])
-                _sh.name = _l[1]
-                _sh.atom_numbers = [int(i) for i in _l[2].split()]
-                _sh.is_sp2 = bool(_l[5])
-                _sh.nuclei = _l[6]
-                self.peaks.append(_sh)
-            for _i, _l in enumerate(_ls):
-                if _l[3] != "":
-                    self.peaks[_i].iso_shift = self.peaks[int(_l[3]) - 1]
-                if _l[4] != "":
-                    self.peaks[_i].root_shift = self.peaks[int(_l[4]) - 1]
-        if ver == 2:
-            index_list = []
-            for _id, _l in enumerate(_ls):
-                index_list.append(_l[0])
-                _sh = Shift(_l[1])
-                _sh.name = _l[2]
-                _sh.atom_numbers = [int(i) for i in _l[3].split()]
-                _sh.is_sp2 = bool(_l[6])
-                _sh.nuclei = _l[7]
-                self.peaks.append(_sh)
-            for _id, _l in enumerate(_ls):
-                if _l[4] != "":
-                    _sh.iso_shift = self.peaks(index_list.index(int(_l[4])))
-                if _l[5] != "":
-                    _sh.root_shift = self.peaks(index_list.index(int(_l[5])))
-        return self
-
-    def load_ref(self, csv_path):
-        with Path(csv_path).open() as f:
-            for _l in csv.reader(f):
-                self.ref[Elements.canonicalize(_l[0])] = float(_l[1]) + float(_l[2])
-            logger.info(f"NMR: {Path(csv_path).absolute()} was loaded")
-            logger.info(f"ref_data: {self.ref}")
-        return self
-
-    def apply_ref(self):
-        for _pk in self.peaks:
-            for _key in _pk.calcs:
-                _pk.calcs[_key].val = self.ref[_pk.nuclei] - _pk.calcs[_key].val
-        return self
-
-    def assign(self, label=None):
-        avg_mulcos = Box().bind(self.box.pack_average(keys_for_atoms=["isotropic"]))
-        if label is None:
-            _confs = avg_mulcos.mols
+    @assigned.setter
+    def assigned(self, value: list[Peaks]):
+        if self.analyzing:
+            self._assigned_for_analysis = value
         else:
-            _confs = avg_mulcos.mols.labels[label]
-        for _c in _confs:
-            for _pk in self.peaks:
-                if _pk.calcs.get(_c.name) is not None:
-                    logger.error(f"confomer name {_c.name} is already registered")
-                else:
-                    _pk.calcs[_c.name] = CalcValues(
-                        np.mean([_c.atoms.get(_num).data["isotropic"] for _num in _pk.atom_numbers])
-                    )
+            self._assigned = value
+
+    def init_analysis(self):
+        self._shift_for_analysis = []
+        self._assigned_for_analysis = []
+        self.analyzing = True
         return self
 
-    def swap_isos(self):
-        for _pk in self.peaks:
-            if not (_pk.iso_shift is not None and _pk.root_shift is None):
-                continue
-            if _pk != _pk.iso_shift.iso_shift:
-                raise Exception
-            if _pk.expt > _pk.iso_shift.expt:
-                is_large = True
-            elif (_pk.expt == _pk.iso_shift.expt) and (self.peaks.index(_pk) > self.peaks.index(_pk.iso_shift)):
-                is_large = True
-            else:
-                is_large = False
-            for _k, _val in _pk.calcs.items():
-                if _val.swap_flag:
-                    continue
-                if is_large ^ (_val.val > _pk.iso_shift.calcs[_k].val):
-                    _val.val, _pk.iso_shift.calcs[_k].val = (
-                        _pk.iso_shift.calcs[_k].val,
-                        _val.val,
-                    )
-                    _val.swap_flag = True
-                    _pk.iso_shift.calcs[_k].swap_flag = True
-                    logger.info(f"NMR: {_k}: calcd peak for {_pk.expt} and {_pk.iso_shift.expt} are swaped")
-
-        for _pk in self.peaks:
-            if not (_pk.iso_shift is not None and _pk.root_shift is not None):
-                continue
-            if _pk != _pk.iso_shift.iso_shift:
-                raise Exception
-            for _k, _val in _pk.calcs.items():
-                if _val.swap_flag:
-                    continue
-                if _pk.root_shift.calcs[_k].swap_flag:
-                    _val.val, _pk.iso_shift.calcs[_k].val = (
-                        _pk.iso_shift.calcs[_k].val,
-                        _val.val,
-                    )
-                    _val.swap_flag = True
-                    _pk.iso_shift.calcs[_k].swap_flag = True
-                    logger.info(
-                        "NMR: {}: calcd peak for {} and {} are swaped according to root shift".format(
-                            _k, _pk.expt, _pk.iso_shift.expt
-                        )
-                    )
+    def start_analysis(self):
+        self.analyzing = True
         return self
 
-    def swap_isos_invert(self):
-        self.peaks.mul(-1.0)
-        self.swap_isos()
-        self.peaks.mul(-1.0)
+    def stop_analysis(self):
+        self.analyzing = False
         return self
 
-
-class Nmr(NmrBase):
-    def analyze_mae(self):
-        self.save().reset()
-        self.apply_ref().swap_isos()
-        _data = dict()
-        for _nuc, _pks in self.peaks.get_nucleis().items():
-            _data[_nuc] = {_key: _fac.mae for _key, _fac in _pks.get_factors().items()}
-            logger.info(f"MAE for {_nuc}: {_data[_nuc]}")
-        self.data["MAE"] = _data
-        return self.save("MAE").restore()
-
-    def analyze_cmae(self):
-        self.save().reset().swap_isos_invert()
-        _data = dict()
-        _data_factor = dict()
-        for _nuc, _pks in self.peaks.get_nucleis().items():
-            _data_factor[_nuc] = _pks.get_factors()
-            _pks.scaling(_data_factor[_nuc])
-            _data[_nuc] = {_key: _fac.mae for _key, _fac in _pks.get_factors().items()}
-            logger.info(f"factors for {_nuc}: {_r_str(_data_factor[_nuc])}")
-            logger.info(f"CMAE for {_nuc}: {_data[_nuc]}")
-        self.data["CMAE"] = _data
-        self.data["CMAE_FACTORS"] = _data_factor
-        return self.save("CMAE").restore()
-
-    def cal_averaged_distance(self, output_dir: Path, noe_path_dict: dict):
-        for _mol_name, _p in noe_path_dict.items():
-            with Path(_p).open() as f:
-                _noes = {int(_l[0]): [float.fromhex(_v) for _v in _l[1:]] for _l in csv.reader(f)}
-            with Path(_p).open() as f:
-                _noes_index = [int(_l[0]) for _l in csv.reader(f)]
-            shift_noes_list = []
-            for _s in self.shifts:
-                _s_noes = [_noes[cal_num] for cal_num in _s.calc_number if cal_num in _noes.keys()]
-                if len(_s_noes) != 0:
-                    _s_noes_ave = {_noes_index[i]: mean([_l[i] for _l in _s_noes]) for i in range(len(_s_noes[0]))}
-                    shift_noes_list.append({"shift": _s, "noe": copy.deepcopy(_s_noes_ave)})
-            already_swaped = []
-            for _d in shift_noes_list:
-                if _d["shift"].row_index in already_swaped:
-                    continue
-                if _mol_name in _d["shift"].swaped_data:
-                    for _d_pair in shift_noes_list:
-                        if _d["shift"].either_index == _d_pair["shift"].row_index:
-                            _d["noe"], _d_pair["noe"] = _d_pair["noe"], _d["noe"]
-                            logger.info(
-                                "NOE data of {} and {} was swaped in {} 1st step".format(
-                                    _d["shift"].label, _d_pair["shift"].label, _mol_name
-                                )
-                            )
-                            already_swaped.append(_d["shift"].row_index)
-                            already_swaped.append(_d_pair["shift"].row_index)
-            _noes_T = {_id: [_d["noe"][_id] for _d in shift_noes_list] for _id in _noes_index}
-            shift_noes_list_T = []
-            for _s in self.shifts:
-                _s_noes = [_noes_T[cal_num] for cal_num in _s.calc_number if cal_num in _noes_T.keys()]
-                if len(_s_noes) != 0:
-                    _s_noes_ave = [mean([_l[i] for _l in _s_noes]) for i in range(len(_s_noes[0]))]
-                    shift_noes_list_T.append({"shift": _s, "noe": copy.deepcopy(_s_noes_ave)})
-            already_swaped = []
-            for _d in shift_noes_list_T:
-                if _d["shift"].row_index in already_swaped:
-                    continue
-                if _mol_name in _d["shift"].swaped_data:
-                    for _d_pair in shift_noes_list_T:
-                        if _d["shift"].either_index == _d_pair["shift"].row_index:
-                            _d["noe"], _d_pair["noe"] = _d_pair["noe"], _d["noe"]
-                            logger.info(
-                                "NOE data of {} and {} was swaped in {} 2nd step".format(
-                                    _d["shift"].label, _d_pair["shift"].label, _mol_name
-                                )
-                            )
-                            already_swaped.append(_d["shift"].row_index)
-                            already_swaped.append(_d_pair["shift"].row_index)
-            if output_dir is not None:
-                make_dir(output_dir)
-                _o = [["expt_shift", "swaped_calc_number", "label"] + [_d["shift"].label for _d in shift_noes_list]]
-                for _d in shift_noes_list_T:
-                    _dist_list = [_noe ** (-1 / 6) for _noe in _d["noe"]]
-                    if _d["shift"].row_index in already_swaped:
-                        _swaped_cal_num = self.shifts[_d["shift"].either_index - 1].calc_number
-                    else:
-                        _swaped_cal_num = _d["shift"].calc_number
-                    _o.append([_d["shift"].expt_shift, _swaped_cal_num, _d["shift"].label] + _dist_list)
-
-                _p = Path(output_dir).joinpath(_mol_name + "_NOE_distance").with_suffix(".csv")
-                with _p.open("w", newline="") as f:
-                    csv.writer(f).writerows(_o)
+    def load_expt(self, experiment_csv_path: Union[str, Path], ver: int = 2):
+        self.expt = get_expt(experiment_csv_path=experiment_csv_path, ver=ver)
         return self
 
-    def cal_averaged_jvalues(self, output_dir: Path, jvalue_path_dict: dict, scaling=1.0):
-        logger.info(f"scaling factor: {scaling}")
-        for _mol_name, _p in jvalue_path_dict.items():
-            with Path(_p).open() as f:
-                _jvalues = {int(_l[0]): [float(_v) for _v in _l[1:]] for _l in csv.reader(f)}
-            with Path(_p).open() as f:
-                _js_index = [int(_l[0]) for _l in csv.reader(f)]
-            shift_js_list = []
-            for _s in self.shifts:
-                _s_js = [_jvalues[cal_num] for cal_num in _s.calc_number if cal_num in _jvalues.keys()]
-                if len(_s_js) != 0:
-                    _s_js_ave = {_js_index[i]: mean([_l[i] for _l in _s_js]) * scaling for i in range(len(_s_js[0]))}
-                    shift_js_list.append({"shift": _s, "jvalue": copy.deepcopy(_s_js_ave)})
-            already_swaped = []
-            for _d in shift_js_list:
-                if _d["shift"].row_index in already_swaped:
-                    continue
-                if _mol_name in _d["shift"].swaped_data:
-                    for _d_pair in shift_js_list:
-                        if _d["shift"].either_index == _d_pair["shift"].row_index:
-                            _d["jvalue"], _d_pair["jvalue"] = (
-                                _d_pair["jvalue"],
-                                _d["jvalue"],
-                            )
-                            logger.debug(
-                                "J vaule data of {} and {} was swaped in {} 1st step".format(
-                                    _d["shift"].label, _d_pair["shift"].label, _mol_name
-                                )
-                            )
-                            already_swaped.append(_d["shift"].row_index)
-                            already_swaped.append(_d_pair["shift"].row_index)
-            _js_T = {_id: [_d["jvalue"][_id] for _d in shift_js_list] for _id in _js_index}
-            shift_js_list_T = []
-            for _s in self.shifts:
-                _s_js = [_js_T[cal_num] for cal_num in _s.calc_number if cal_num in _js_T.keys()]
-                if len(_s_js) != 0:
-                    _s_js_ave = [mean([_l[i] for _l in _s_js]) for i in range(len(_s_js[0]))]
-                    shift_js_list_T.append({"shift": _s, "jvalue": copy.deepcopy(_s_js_ave)})
-            already_swaped = []
-            for _d in shift_js_list_T:
-                if _d["shift"].row_index in already_swaped:
-                    continue
-                if _mol_name in _d["shift"].swaped_data:
-                    for _d_pair in shift_js_list_T:
-                        if _d["shift"].either_index == _d_pair["shift"].row_index:
-                            _d["jvalue"], _d_pair["jvalue"] = (
-                                _d_pair["jvalue"],
-                                _d["jvalue"],
-                            )
-                            logger.debug(
-                                "J value data of {} and {} was swaped in {} 2nd step".format(
-                                    _d["shift"].label, _d_pair["shift"].label, _mol_name
-                                )
-                            )
-                            already_swaped.append(_d["shift"].row_index)
-                            already_swaped.append(_d_pair["shift"].row_index)
-            if output_dir is not None:
-                make_dir(output_dir)
-                _o = [["expt_shift", "swaped_calc_number", "label"] + [_d["shift"].label for _d in shift_js_list]]
-                for _d in shift_js_list_T:
-                    if _d["shift"].row_index in already_swaped:
-                        _swaped_cal_num = self.shifts[_d["shift"].either_index - 1].calc_number
-                    else:
-                        _swaped_cal_num = _d["shift"].calc_number
-                    _o.append([_d["shift"].expt_shift, _swaped_cal_num, _d["shift"].label] + _d["jvalue"])
-
-                _p = Path(output_dir).joinpath(_mol_name + "_J_values").with_suffix(".csv")
-                with _p.open("w", newline="") as f:
-                    csv.writer(f).writerows(_o)
+    def load_shift(self, reference: Union[str, Path, dict] = None, precise: bool = True):
+        if isinstance(reference, (str, Path)):
+            for tsr in self.tensor:
+                self.shift.append(get_shifts_by_csv(tsr, reference, precise))
+        elif isinstance(reference, dict):
+            for tsr in self.tensor:
+                self.shift.append(get_shifts(tsr, reference, precise))
+        elif reference is None:
+            for tsr in self.tensor:
+                self.shift.append(tsr * (-1))
         return self
+
+    def assign_shift(self):
+        if len(self.shift) == 0:
+            self.load_shift()
+        self.assigned: list[Peaks] = []
+        for peaks in self.shift:
+            self.shift.append(get_assigned(peaks, self.expt))
+        return self
+
+    def swap_assigned(self):
+        if len(self.assigned) == 0:
+            self.assign_shift()
+        swapped: list[Peaks] = []
+        for peaks in self.assigned:
+            swapped.append(get_swapped(peaks, self.expt))
+        self.assigned = swapped
+        return self
+
+    def check_assigned(self):
+        return self
+
+    def scale_assigned(self, key="factor"):
+        self.check_assigned()
+        for idx in range(self.assigned):
+            for nuc in self.expt.nuclei.keys():
+                a_peaks = self.assigned[idx].has_nuclei(nuc)
+                slope, intercept, rval = get_factors(a_peaks, self.expt.has_nuclei(nuc))
+                a_peaks.sub(intercept).div(slope)
+                self.data[f"{key}_slope_{self.assigned[idx].label}_{nuc}"] = slope
+                self.data[f"{key}_intercept_{self.assigned[idx].label}_{nuc}"] = intercept
+                self.data[f"{key}_rvalue_{self.assigned[idx].label}_{nuc}"] = rval
+        return self
+
+    def calc_mae(self, key="MAE"):
+        self.check_assigned()
+        edict_for_label: dict[str, dict[str, float]] = {}
+        for a_peaks in self.assigned:
+            errors_for_nuc: dict[str, float] = {}
+            for e_peak in self.expt:
+                errors_for_nuc[e_peak.nuclei] += abs(e_peak.val - a_peaks[self.expt.index(e_peak)].val)
+            for nuc in errors_for_nuc:
+                errors_for_nuc[nuc] = errors_for_nuc[nuc] / len(self.expt.nuclei.get(nuc))
+            edict_for_label[a_peaks.label] = errors_for_nuc
+        for nuc in self.expt.nuclei.keys():
+            self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
+        return self
+
+    def analyze_mae(self, key="MAE", reference: Union[str, Path, dict] = None):
+        self.init_analysis()
+        self.load_shift(reference=reference)
+        self.assign_shift()
+        self.swap_assigned()
+        self.calc_mae(key=key)
+        return self.stop_analysis()
+
+    def calc_rmse(self, key="RMSE"):
+        self.check_assigned()
+        edict_for_label: dict[str, dict[str, float]] = {}
+        for a_peaks in self.assigned:
+            errors_for_nuc: dict[str, float] = {}
+            for e_peak in self.expt:
+                errors_for_nuc[e_peak.nuclei] += (e_peak.val - a_peaks[self.expt.index(e_peak)].val) ** 2
+            for nuc in errors_for_nuc:
+                errors_for_nuc[nuc] = (errors_for_nuc[nuc] / len(self.expt.nuclei.get(nuc))) ** 0.5
+            edict_for_label[a_peaks.label] = errors_for_nuc
+        for nuc in self.expt.nuclei.keys():
+            self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
+        return self
+
+    def analyze_rmse(self, key="RMSE", reference: Union[str, Path, dict] = None):
+        self.init_analysis()
+        self.load_shift(reference=reference)
+        self.assign_shift()
+        self.swap_assigned()
+        self.calc_rmse(key=key)
+        return self.stop_analysis()
+
+    def calc_maxerr(self, key="MaxError"):
+        self.check_assigned()
+        edict_for_label: dict[str, dict[str, float]] = {}
+        for a_peaks in self.assigned:
+            errors_for_nuc: dict[str, float] = {nuc: 0.0 for nuc in self.expt.nuclei.keys()}
+            for e_peak in self.expt:
+                _err = e_peak.val - a_peaks[self.expt.index(e_peak)].val
+                errors_for_nuc[e_peak.nuclei] = max(_err, errors_for_nuc[e_peak.nuclei])
+            edict_for_label[a_peaks.label] = errors_for_nuc
+        for nuc in self.expt.nuclei.keys():
+            self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
+        return self
+
+    def analyze_maxerr(self, key="MaxError", reference: Union[str, Path, dict] = None):
+        self.init_analysis()
+        self.load_shift(reference=reference)
+        self.assign_shift()
+        self.swap_assigned()
+        self.calc_maxerr(key=key)
+        return self.stop_analysis()
+
+    def analyze_cmae(self, key="CMAE"):
+        self.init_analysis()
+        self.load_shift().assign_shift().swap_assigned()
+        for peaks in self.assigned:
+            peaks.mul(-1)
+        self.scale_assigned()
+        self.calc_mae(key=key)
+        return self.stop_analysis()
+
+    def analyze_dp4(
+        self, key="DP4", param: dict[str, tuple[float]] = {"C": (0.0, 2.306, 11.38), "H": (0.0, 0.185, 14.18)}
+    ):
+        self.init_analysis()
+        self.load_shift().assign_shift().swap_assigned()
+        for peaks in self.assigned:
+            peaks.mul(-1)
+        self.scale_assigned()
+        t_probs = {"C": [1.0 for _ in self.assigned], "H": [1.0 for _ in self.assigned]}
+        for nuc in ("C", "H"):
+            logger.info(f"DP4 parameter for {nuc}: {param[nuc]}")
+            t_probs[nuc] = [
+                get_t_probability(
+                    _a.has_nuclei(nuc), self.expt.has_nuclei(nuc), param[nuc][0], param[nuc][1], param[nuc][2]
+                )
+                for _a in self.assigned
+            ]
+            self.data[f"{key}_{nuc}"] = [100.0 * _val / sum(t_probs[nuc]) for _val in t_probs[nuc]]
+        t_probs["All"] = [t_probs["C"][idx] * t_probs["H"][idx] for idx in range(self.assigned)]
+        self.data[f"{key}_All"] = [100.0 * _val / sum(t_probs["All"]) for _val in t_probs["All"]]
+        return self.stop_analysis()
+
+    # parameters for mPW1PW91/6-31G+(d,p)-PCM//B3LYP/6-31G(d)
+    def analyze_dp4p(
+        self,
+        scaled_param: dict[str, tuple[float]] = {"C": (0.0, 1.557, 6.227), "H": (0.0, 0.104, 3.893)},
+        unscaled_sp3_param: dict[str, tuple[float]] = {"C": (2.909, 1.600, 6.269), "H": (-0.018, 0.112, 3.651)},
+        unscaled_sp2_param: dict[str, tuple[float]] = {"C": (-0.920, 1.748, 5.364), "H": (0.347, 0.118, 4.911)},
+        reference: dict[str, float] = {"C": 197.3544, "H": 31.62373333},
+        int_degree: bool = True,
+    ):
+        self.init_analysis().load_shift(reference=reference).assign_shift().swap_assigned()
+
+        probs_us_sp3: dict[str, list[float]] = {}
+        probs_us_sp2: dict[str, list[float]] = {}
+        probs_scaled: dict[str, list[float]] = {}
+        for nuc in ("C", "H"):
+            logger.info(f"DP4+ parameter for unscaled {nuc}: {unscaled_sp3_param[nuc]}")
+            probs_us_sp3[nuc] = [
+                get_t_probability(
+                    a_peaks.has_nuclei(nuc).has_sp3(True),
+                    self.expt.has_nuclei(nuc).has_sp3(True),
+                    unscaled_sp3_param[nuc][0],
+                    unscaled_sp3_param[nuc][1],
+                    unscaled_sp3_param[nuc][2],
+                )
+                for a_peaks in self.assigned
+            ]
+            logger.info(f"DP4+ parameter for unscaled sp2 {nuc}: {unscaled_sp2_param[nuc]}")
+            probs_us_sp2[nuc] = [
+                get_t_probability(
+                    a_peaks.has_nuclei(nuc).has_sp3(False),
+                    self.expt.has_nuclei(nuc).has_sp3(False),
+                    unscaled_sp2_param[nuc][0],
+                    unscaled_sp2_param[nuc][1],
+                    unscaled_sp2_param[nuc][2],
+                )
+                for a_peaks in self.assigned
+            ]
+
+        self.scale_assigned()
+        for nuc in ("C", "H"):
+            logger.info(f"DP4+ parameter for scaled {nuc}: {scaled_param[nuc]}")
+            probs_scaled[nuc] = [
+                get_t_probability(
+                    a_peaks.has_nuclei(nuc),
+                    self.expt.has_nuclei(nuc),
+                    scaled_param[nuc][0],
+                    scaled_param[nuc][1],
+                    scaled_param[nuc][2],
+                )
+                for a_peaks in self.assigned
+            ]
+
+        probs_unscaled: dict[str, list[float]] = {}
+        probs_all: dict[str, list[float]] = {}
+
+        for nuc in ("C", "H"):
+            probs_unscaled[nuc] = [_sp3 * _sp2 for _sp3, _sp2 in zip(probs_us_sp3[nuc], probs_us_sp2[nuc])]
+            probs_all[nuc] = [_us * _s for _us, _s in zip(probs_unscaled[nuc], probs_scaled[nuc])]
+
+        probs_us_sp3["All"] = [_c * _h for _c, _h in zip(probs_us_sp3["C"], probs_us_sp3["H"])]
+        probs_us_sp2["All"] = [_c * _h for _c, _h in zip(probs_us_sp2["C"], probs_us_sp2["H"])]
+        probs_scaled["All"] = [_c * _h for _c, _h in zip(probs_scaled["C"], probs_scaled["H"])]
+        probs_unscaled["All"] = [_c * _h for _c, _h in zip(probs_unscaled["C"], probs_unscaled["H"])]
+        probs_all["All"] = [_c * _h for _c, _h in zip(probs_all["C"], probs_all["H"])]
+
+        pct_unscaled: dict[str, list[float]] = {}
+        pct_scaled: dict[str, list[float]] = {}
+        pct_all: dict[str, list[float]] = {}
+        for nuc in ("C", "H"):
+            pct_unscaled[nuc] = [100.0 * val / sum(probs_unscaled[nuc]) for val in probs_unscaled[nuc]]
+            pct_scaled[nuc] = [100.0 * val / sum(probs_scaled[nuc]) for val in probs_scaled[nuc]]
+            pct_all[nuc] = [100.0 * val / sum(probs_all[nuc]) for val in probs_all[nuc]]
+        pct_unscaled["All"] = [100.0 * val / sum(probs_unscaled[nuc]) for val in probs_unscaled[nuc]]
+        pct_scaled["All"] = [100.0 * val / sum(probs_scaled[nuc]) for val in probs_scaled[nuc]]
+        pct_all["All"] = [100.0 * val / sum(probs_all[nuc]) for val in probs_all[nuc]]
+
+        logger.info(f"DP4+ probability: {pct_all}")
+        self.data["DP4+"] = pct_all
+        return self.stop_analysis()
