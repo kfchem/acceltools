@@ -5,6 +5,8 @@ from accel import Box
 from accel.base.atoms import Atoms
 from accel.base.xyz import get_dihedral
 
+from acceltools.base import ToolBox
+
 
 def _get_angle_set(bonds: Set[Tuple[int]]) -> Set[Tuple[int]]:
     ang_set = set()
@@ -50,10 +52,7 @@ def _remove_hydrogen(bonds: Set[Tuple[int]], atoms: Atoms) -> Set[Tuple[int]]:
     return non_h_set
 
 
-class SeriesBox:
-    def __init__(self, box: Box) -> None:
-        self.box = box
-
+class SeriesBox(ToolBox):
     def modify_length(
         self,
         number_a: int,
@@ -70,7 +69,7 @@ class SeriesBox:
         target = begin
         count = 0
         while target < end:
-            mc = Box().bind(self.box.mols).duplicate()
+            mc = Box().bind(self.mols).duplicate()
             mc.modify_length(number_a, number_b, target, fix_a, fix_b, numbers_along_with_a, numbers_along_with_b)
             for _c in mc.mols:
                 _c.name = f"{_c.name}_{count:03d}"
@@ -81,7 +80,7 @@ class SeriesBox:
 
     def calc_length(self, all=False, key: str = "L_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.box.mols.labels.values():
+        for confs in self.mols.labels.values():
             label_mc = Box(confs)
             _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
@@ -95,7 +94,7 @@ class SeriesBox:
 
     def calc_angle(self, all=False, key: str = "A_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.box.mols.labels.values():
+        for confs in self.mols.labels.values():
             label_mc = Box(confs)
             _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
@@ -109,7 +108,7 @@ class SeriesBox:
 
     def calc_dihedral(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.box.mols.labels.values():
+        for confs in self.mols.labels.values():
             label_mc = Box(confs)
             _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()
@@ -123,7 +122,7 @@ class SeriesBox:
 
     def calc_dihedral_xy(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.box.mols.labels.values():
+        for confs in self.mols.labels.values():
             label_mc = Box(confs)
             _atoms = label_mc.mols.get().atoms
             _bonds = _atoms.bonds.keys()

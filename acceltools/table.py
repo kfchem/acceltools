@@ -1,17 +1,15 @@
 from typing import List
 
 import pandas as pd
-from accel import Box
 from accel.util.log import logger
 
+from acceltools.base import ToolBox
 
-class TableBox:
-    def __init__(self, box: Box) -> None:
-        self.box: Box = box
 
+class TableBox(ToolBox):
     def get_df(self, data_list: List[str] = []):
         df = pd.DataFrame()
-        for _c in self.box.mols:
+        for _c in self.mols:
             ser_dict = {}
             for key in data_list:
                 if key in [
@@ -20,7 +18,7 @@ class TableBox:
                     "filetype",
                     "label",
                     "flag",
-                    "cause",
+                    "history",
                     "energy",
                     "atoms",
                     "data",

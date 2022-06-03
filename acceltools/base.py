@@ -1,14 +1,21 @@
-from typing import Union
+from typing import Iterable, Union
 
+from accel import Mol
 from accel.base.box import Box
 from accel.base.mols import Mols
 
 
 class ToolBox:
-    def __init__(self, value: Union[Box, Mols]):
-        if isinstance(value, Box):
-            self.mols: Mols = value.mols
-        elif isinstance(value, Mols):
-            self.mols: Mols = value
+    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+        if isinstance(box, Box):
+            self._mols: Mols = box.mols
+        elif isinstance(box, Mols):
+            self._mols: Mols = box
+        elif isinstance(box, Mol):
+            self._mols: Mols = Mols().append(box)
         else:
-            self.mols: Mols = Mols()
+            self._mols: Mols = Box(box).mols
+
+    @property
+    def mols(self):
+        return self._mols.has_state(True)

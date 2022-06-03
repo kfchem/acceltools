@@ -11,8 +11,9 @@ from accel.base.mols import Mol, Mols
 from accel.util.constants import Elements
 from accel.util.datadict import Data
 from accel.util.log import logger
-from acceltools.base import ToolBox
 from scipy import stats
+
+from acceltools.base import ToolBox
 
 
 class Peak:
@@ -329,7 +330,7 @@ def export_peak(peaks: Peaks, filepath: Union[str, Path] = None) -> Path:
 def get_t_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: float = 0.0, degree: float = 0.0):
     check_identity(assigned, expt)
     t_probs = 1.0
-    for idx in range(expt):
+    for idx in range(len(expt)):
         _err = assigned[idx].val - expt[idx].val
         t_probs *= stats.t.sf(abs(_err - mean) / stdev, degree)
     logger.info(f"Survival function of Students t distribution was calculated: {t_probs}")
@@ -339,7 +340,7 @@ def get_t_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: fl
 def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: float = 0.0):
     check_identity(assigned, expt)
     n_probs = 1.0
-    for idx in range(expt):
+    for idx in range(len(expt)):
         _err = assigned[idx].val - expt[idx].val
         n_probs *= stats.norm.sf(abs(_err - mean) / stdev)
     logger.info(f"Survival function of normal distribution was calculated: {n_probs}")
@@ -439,7 +440,7 @@ class NmrBox(ToolBox):
 
     def scale_assigned(self, key="factor"):
         self.check_assigned()
-        for idx in range(self.assigned):
+        for idx in range(len(self.assigned)):
             for nuc in self.expt.nuclei.keys():
                 a_peaks = self.assigned[idx].has_nuclei(nuc)
                 slope, intercept, rval = get_factors(a_peaks, self.expt.has_nuclei(nuc))
@@ -541,13 +542,14 @@ class NmrBox(ToolBox):
                 for _a in self.assigned
             ]
             self.data[f"{key}_{nuc}"] = [100.0 * _val / sum(t_probs[nuc]) for _val in t_probs[nuc]]
-        t_probs["All"] = [t_probs["C"][idx] * t_probs["H"][idx] for idx in range(self.assigned)]
+        t_probs["All"] = [t_probs["C"][idx] * t_probs["H"][idx] for idx in range(len(self.assigned))]
         self.data[f"{key}_All"] = [100.0 * _val / sum(t_probs["All"]) for _val in t_probs["All"]]
         return self.stop_analysis()
 
     # parameters for mPW1PW91/6-31G+(d,p)-PCM//B3LYP/6-31G(d)
     def analyze_dp4p(
         self,
+        key="DP4plus",
         scaled_param: dict[str, tuple[float]] = {"C": (0.0, 1.557, 6.227), "H": (0.0, 0.104, 3.893)},
         unscaled_sp3_param: dict[str, tuple[float]] = {"C": (2.909, 1.600, 6.269), "H": (-0.018, 0.112, 3.651)},
         unscaled_sp2_param: dict[str, tuple[float]] = {"C": (-0.920, 1.748, 5.364), "H": (0.347, 0.118, 4.911)},
@@ -621,6 +623,11 @@ class NmrBox(ToolBox):
         pct_scaled["All"] = [100.0 * val / sum(probs_scaled[nuc]) for val in probs_scaled[nuc]]
         pct_all["All"] = [100.0 * val / sum(probs_all[nuc]) for val in probs_all[nuc]]
 
-        logger.info(f"DP4+ probability: {pct_all}")
-        self.data["DP4+"] = pct_all
+        logger.info(f"DP4+: unscaled: {pct_unscaled}")
+        logger.info(f"DP4+: scaled: {pct_scaled}")
+        logger.info(f"DP4+: all: {pct_all}")
+        for nuc in ("C", "H", "All"):
+            self.data[f"{key}_unscaled_{nuc}"] = pct_unscaled[nuc]
+            self.data[f"{key}_scaled_{nuc}"] = pct_scaled[nuc]
+            self.data[f"{key}_all_{nuc}"] = pct_all[nuc]
         return self.stop_analysis()
