@@ -349,6 +349,7 @@ def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: fl
 class NmrBox(ToolBox):
     def __init__(self, value: Union[Box, Mols]):
         self.expt: Peaks = None
+        self.ref: dict[str, float] = None
         self.tensor: list[Peaks] = []
         self._shift: list[Peaks] = []
         self._assigned: list[Peaks] = []
@@ -398,49 +399,57 @@ class NmrBox(ToolBox):
         self.analyzing = False
         return self
 
+    def load_expt(self, experiment_csv_path: Union[str, Path], ver: int = 2):
+        self.expt = get_expt(experiment_csv_path=experiment_csv_path, ver=ver)
+        return self
+
     def load_tensor(self, tensor_key="isotropic"):
         for _c in self.mols:
             self.tensor.append(get_tensor(_c, key=tensor_key))
         return self
 
-    def load_expt(self, experiment_csv_path: Union[str, Path], ver: int = 2):
-        self.expt = get_expt(experiment_csv_path=experiment_csv_path, ver=ver)
+    def load_ref(self, reference: Union[str, Path, dict]):
+        if isinstance(reference, (str, Path)):
+            refs: dict[str, float] = {}
+            with Path(reference).open() as f:
+                for _l in csv.reader(f):
+                    refs[Elements.canonicalize(_l[0])] = float(_l[1]) + float(_l[2])
+            self.ref = refs
+        elif isinstance(reference, dict):
+            self.ref = reference
         return self
 
-    def load_shift(self, reference: Union[str, Path, dict] = None, precise: bool = True):
-        if isinstance(reference, (str, Path)):
-            for tsr in self.tensor:
-                self.shift.append(get_shifts_by_csv(tsr, reference, precise))
-        elif isinstance(reference, dict):
-            for tsr in self.tensor:
-                self.shift.append(get_shifts(tsr, reference, precise))
-        elif reference is None:
+    def conv_to_shift(self, precise: bool = True):
+        if self.ref is None:
             for tsr in self.tensor:
                 self.shift.append(tsr * (-1))
+        else:
+            for tsr in self.tensor:
+                self.shift.append(get_shifts(tsr, self.ref, precise))
         return self
 
-    def assign_shift(self):
+    def conv_to_assigned(self):
         if len(self.shift) == 0:
-            self.load_shift()
+            self.conv_to_shift()
         self.assigned: list[Peaks] = []
         for peaks in self.shift:
-            self.shift.append(get_assigned(peaks, self.expt))
+            self.assigned.append(get_assigned(peaks, self.expt))
         return self
 
     def swap_assigned(self):
         if len(self.assigned) == 0:
-            self.assign_shift()
+            self.conv_to_assigned()
         swapped: list[Peaks] = []
         for peaks in self.assigned:
             swapped.append(get_swapped(peaks, self.expt))
         self.assigned = swapped
         return self
 
-    def check_assigned(self):
+    def check_assign(self):
         return self
 
     def scale_assigned(self, key="factor"):
-        self.check_assigned()
+        self.check_assign()
         for idx in range(len(self.assigned)):
             for nuc in self.expt.nuclei.keys():
                 a_peaks = self.assigned[idx].has_nuclei(nuc)
@@ -452,7 +461,7 @@ class NmrBox(ToolBox):
         return self
 
     def calc_mae(self, key="MAE"):
-        self.check_assigned()
+        self.check_assign()
         edict_for_label: dict[str, dict[str, float]] = {}
         for a_peaks in self.assigned:
             errors_for_nuc: dict[str, float] = {}
@@ -465,16 +474,16 @@ class NmrBox(ToolBox):
             self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
         return self
 
-    def analyze_mae(self, key="MAE", reference: Union[str, Path, dict] = None):
+    def analyze_mae(self, key="MAE"):
         self.init_analysis()
-        self.load_shift(reference=reference)
-        self.assign_shift()
+        self.conv_to_shift()
+        self.conv_to_assigned()
         self.swap_assigned()
         self.calc_mae(key=key)
         return self.stop_analysis()
 
     def calc_rmse(self, key="RMSE"):
-        self.check_assigned()
+        self.check_assign()
         edict_for_label: dict[str, dict[str, float]] = {}
         for a_peaks in self.assigned:
             errors_for_nuc: dict[str, float] = {}
@@ -487,16 +496,16 @@ class NmrBox(ToolBox):
             self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
         return self
 
-    def analyze_rmse(self, key="RMSE", reference: Union[str, Path, dict] = None):
+    def analyze_rmse(self, key="RMSE"):
         self.init_analysis()
-        self.load_shift(reference=reference)
-        self.assign_shift()
+        self.conv_to_shift()
+        self.conv_to_assigned()
         self.swap_assigned()
         self.calc_rmse(key=key)
         return self.stop_analysis()
 
     def calc_maxerr(self, key="MaxError"):
-        self.check_assigned()
+        self.check_assign()
         edict_for_label: dict[str, dict[str, float]] = {}
         for a_peaks in self.assigned:
             errors_for_nuc: dict[str, float] = {nuc: 0.0 for nuc in self.expt.nuclei.keys()}
@@ -508,28 +517,26 @@ class NmrBox(ToolBox):
             self.data[key + "_" + nuc] = {_k: _v[nuc] for _k, _v in edict_for_label.items()}
         return self
 
-    def analyze_maxerr(self, key="MaxError", reference: Union[str, Path, dict] = None):
+    def analyze_maxerr(self, key="MaxError"):
         self.init_analysis()
-        self.load_shift(reference=reference)
-        self.assign_shift()
+        self.conv_to_shift()
+        self.conv_to_assigned()
         self.swap_assigned()
         self.calc_maxerr(key=key)
         return self.stop_analysis()
 
     def analyze_cmae(self, key="CMAE"):
         self.init_analysis()
-        self.load_shift().assign_shift().swap_assigned()
+        self.conv_to_shift().conv_to_assigned().swap_assigned()
         for peaks in self.assigned:
             peaks.mul(-1)
         self.scale_assigned()
         self.calc_mae(key=key)
         return self.stop_analysis()
 
-    def analyze_dp4(
-        self, key="DP4", param: dict[str, tuple[float]] = {"C": (0.0, 2.306, 11.38), "H": (0.0, 0.185, 14.18)}
-    ):
+    def analyze_dp4(self, key="DP4", param: dict[str, tuple[float]] = {"C": (0.0, 0.0, 0.0), "H": (0.0, 0.0, 0.0)}):
         self.init_analysis()
-        self.load_shift().assign_shift().swap_assigned()
+        self.conv_to_shift().conv_to_assigned().swap_assigned()
         for peaks in self.assigned:
             peaks.mul(-1)
         self.scale_assigned()
@@ -547,17 +554,16 @@ class NmrBox(ToolBox):
         self.data[f"{key}_All"] = [100.0 * _val / sum(t_probs["All"]) for _val in t_probs["All"]]
         return self.stop_analysis()
 
-    # parameters for mPW1PW91/6-31G+(d,p)-PCM//B3LYP/6-31G(d)
     def analyze_dp4p(
         self,
         key="DP4plus",
-        scaled_param: dict[str, tuple[float]] = {"C": (0.0, 1.557, 6.227), "H": (0.0, 0.104, 3.893)},
-        unscaled_sp3_param: dict[str, tuple[float]] = {"C": (2.909, 1.600, 6.269), "H": (-0.018, 0.112, 3.651)},
-        unscaled_sp2_param: dict[str, tuple[float]] = {"C": (-0.920, 1.748, 5.364), "H": (0.347, 0.118, 4.911)},
-        reference: dict[str, float] = {"C": 197.3544, "H": 31.62373333},
+        scaled_param: dict[str, tuple[float]] = {"C": (0.0, 0.0, 0.0), "H": (0.0, 0.0, 0.0)},
+        unscaled_sp3_param: dict[str, tuple[float]] = {"C": (0.0, 0.0, 0.0), "H": (0.0, 0.0, 0.0)},
+        unscaled_sp2_param: dict[str, tuple[float]] = {"C": (0.0, 0.0, 0.0), "H": (0.0, 0.0, 0.0)},
+        reference: dict[str, float] = {"C": 0.0, "H": 0.0},
         int_degree: bool = False,
     ):
-        self.init_analysis().load_shift(reference=reference).assign_shift().swap_assigned()
+        self.init_analysis().conv_to_shift(reference=reference).assign_shift().swap_assign()
 
         probs_us_sp3: dict[str, list[float]] = {}
         probs_us_sp2: dict[str, list[float]] = {}
@@ -633,14 +639,13 @@ class NmrBox(ToolBox):
             self.data[f"{key}_all_{nuc}"] = pct_all[nuc]
         return self.stop_analysis()
 
-    # DMSO
     def analyze_dice(
         self,
         key: str = "dice",
-        scale: dict[str, tuple[float]] = {"C": (-0.9770, 189.14), "H": (-0.9726, 31.31), "N": (-0.9776, -126.77)},
-        param: dict[str, tuple[float]] = {"C": (0.0, 2.038, 36.46), "H": (0.0, 0.113, 3.523), "N": (0.0, 4.78, None)},
+        scale: dict[str, tuple[float]] = {"C": (0.0, 0.0), "H": (0.0, 0.0), "N": (0.0, 0.0)},
+        param: dict[str, tuple[float]] = {"C": (0.0, 0.0, 0.0), "H": (0.0, 0.0, 0.0), "N": (0.0, 0.0, None)},
     ):
-        self.init_analysis().load_shift().assign_shift().swap_assigned()
+        self.init_analysis().conv_to_shift().conv_to_assigned().swap_assigned()
         for peaks in self.assigned:
             peaks.mul(-1)
 
