@@ -1,8 +1,10 @@
 import math
-from typing import Sequence, Set, Tuple
+from typing import Iterable, Sequence, Set, Tuple, Union
 
-from accel import Box
+from accel import Mol
 from accel.base.atoms import Atoms
+from accel.base.box import Box
+from accel.base.mols import Mols
 from accel.base.xyz import get_dihedral
 
 from acceltools.base import ToolBox
@@ -53,6 +55,10 @@ def _remove_hydrogen(bonds: Set[Tuple[int]], atoms: Atoms) -> Set[Tuple[int]]:
 
 
 class SeriesBox(ToolBox):
+    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+        self.keys: list[str] = None
+        super().__init__(box)
+
     def modify_length(
         self,
         number_a: int,
@@ -76,7 +82,7 @@ class SeriesBox(ToolBox):
             ret_list.extend(mc.mols.to_list())
             target += step
             count += 1
-        return Box(ret_list)
+        return Mols().bind(ret_list)
 
     def calc_length(self, all=False, key: str = "L_", in_label=True, ignore_hydrogen=True):
         key_list = []
@@ -90,7 +96,8 @@ class SeriesBox(ToolBox):
                 tkey = f"{key}{_atoms.get(bond[0])}-{_atoms.get(bond[1])}"
                 label_mc.calc_length(bond[0], bond[1], tkey)
                 key_list.append(tkey)
-        return key_list
+        self.keys = key_list
+        return self
 
     def calc_angle(self, all=False, key: str = "A_", in_label=True, ignore_hydrogen=True):
         key_list = []
@@ -104,7 +111,8 @@ class SeriesBox(ToolBox):
                 tkey = f"{key}{_atoms.get(angles[0])}-{_atoms.get(angles[1])}-{_atoms.get(angles[2])}"
                 label_mc.calc_angle(angles[0], angles[1], angles[2], tkey)
                 key_list.append(tkey)
-        return key_list
+        self.keys = key_list
+        return self
 
     def calc_dihedral(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
@@ -118,7 +126,8 @@ class SeriesBox(ToolBox):
                 tkey = f"{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
                 label_mc.calc_dihedral(dhs[0], dhs[1], dhs[2], dhs[3], tkey)
                 key_list.append(tkey)
-        return key_list
+        self.keys = key_list
+        return self
 
     def calc_dihedral_xy(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
@@ -139,4 +148,5 @@ class SeriesBox(ToolBox):
                     _c.data[ykey] = math.sin(math.radians(d_degree))
                 key_list.append(xkey)
                 key_list.append(ykey)
-        return key_list
+        self.keys = key_list
+        return self

@@ -1,9 +1,8 @@
 import csv
 from collections.abc import MutableSequence
 from copy import deepcopy
-from ctypes import Union
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Union
 
 import numpy as np
 from accel.base.box import Box
@@ -348,7 +347,7 @@ def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: fl
 
 
 class NmrBox(ToolBox):
-    def __init__(self, value: Union[Box, Mols], tensor_key="isotropic"):
+    def __init__(self, value: Union[Box, Mols]):
         self.expt: Peaks = None
         self.tensor: list[Peaks] = []
         self._shift: list[Peaks] = []
@@ -356,10 +355,7 @@ class NmrBox(ToolBox):
         self._shift_for_analysis: list[Peaks] = []
         self._assigned_for_analysis: list[Peaks] = []
         self.data = Data(self)
-        self.tensor_key = tensor_key
         self.analyzing = False
-        for _c in self.mols:
-            self.tensor.append(get_tensor(_c, key=self.tensor_key))
         super().__init__(value)
 
     @property
@@ -400,6 +396,11 @@ class NmrBox(ToolBox):
 
     def stop_analysis(self):
         self.analyzing = False
+        return self
+
+    def load_tensor(self, tensor_key="isotropic"):
+        for _c in self.mols:
+            self.tensor.append(get_tensor(_c, key=tensor_key))
         return self
 
     def load_expt(self, experiment_csv_path: Union[str, Path], ver: int = 2):
@@ -554,7 +555,7 @@ class NmrBox(ToolBox):
         unscaled_sp3_param: dict[str, tuple[float]] = {"C": (2.909, 1.600, 6.269), "H": (-0.018, 0.112, 3.651)},
         unscaled_sp2_param: dict[str, tuple[float]] = {"C": (-0.920, 1.748, 5.364), "H": (0.347, 0.118, 4.911)},
         reference: dict[str, float] = {"C": 197.3544, "H": 31.62373333},
-        int_degree: bool = True,
+        int_degree: bool = False,
     ):
         self.init_analysis().load_shift(reference=reference).assign_shift().swap_assigned()
 
@@ -630,4 +631,41 @@ class NmrBox(ToolBox):
             self.data[f"{key}_unscaled_{nuc}"] = pct_unscaled[nuc]
             self.data[f"{key}_scaled_{nuc}"] = pct_scaled[nuc]
             self.data[f"{key}_all_{nuc}"] = pct_all[nuc]
+        return self.stop_analysis()
+
+    # DMSO
+    def analyze_dice(
+        self,
+        key: str = "dice",
+        scale: dict[str, tuple[float]] = {"C": (-0.9770, 189.14), "H": (-0.9726, 31.31), "N": (-0.9776, -126.77)},
+        param: dict[str, tuple[float]] = {"C": (0.0, 2.038, 36.46), "H": (0.0, 0.113, 3.523), "N": (0.0, 4.78, None)},
+    ):
+        self.init_analysis().load_shift().assign_shift().swap_assigned()
+        for peaks in self.assigned:
+            peaks.mul(-1)
+
+        for peaks in self.assigned:
+            peak_num = len(peaks)
+            for nuc, sl in scale.items():
+                peak_num -= len(peaks.has_nuclei(nuc).sub(sl[1]).div(sl[0]))
+            if peak_num != 0:
+                logger.error("part of peaks not scaled: check scale")
+
+        t_probs: dict[str, list[float]] = {"N": {1.0 for _ in self.assigned}}
+        for nuc, par in param.items():
+            if nuc == "N":
+                t_probs[nuc] = [
+                    get_n_probability(a_peaks.has_nuclei(nuc), self.expt.has_nuclei(nuc), par[0], par[1])
+                    for a_peaks in self.assigned
+                ]
+            else:
+                t_probs[nuc] = [
+                    get_t_probability(a_peaks.has_nuclei(nuc), self.expt.has_nuclei(nuc), par[0], par[1], par[2])
+                    for a_peaks in self.assigned
+                ]
+            self.data[f"{key}_{nuc}"] = [100.0 * _val / sum(t_probs[nuc]) for _val in t_probs[nuc]]
+        t_probs["All"] = [
+            t_probs["C"][idx] * t_probs["H"][idx] * t_probs["N"][idx] for idx in range(len(self.assigned))
+        ]
+        self.data[f"{key}_All"] = [100.0 * _val / sum(t_probs["All"]) for _val in t_probs["All"]]
         return self.stop_analysis()

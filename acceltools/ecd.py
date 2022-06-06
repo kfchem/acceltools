@@ -1,3 +1,4 @@
+import csv
 from copy import deepcopy
 from pathlib import Path
 from typing import Iterable, Union
@@ -39,12 +40,17 @@ class EcdBox(ToolBox):
         super().__init__(box)
 
     def load_expt(self, filepath: Union[Path, str], x_column: int = 1, y_column: int = 2, start_row: int = 2):
+        with Path(filepath).open() as f:
+            ls = [_l for _l in csv.reader(f)]
+        self.expt = []
+        for _l in ls[(start_row - 1) :]:
+            self.expt.append((float(_l[x_column - 1]), float(_l[y_column - 1])))
         return self
 
     def get_average(self) -> Mols:
         return get_average(self.mols, ecd_key=self.ecd_key)
 
-    def calc_curve(self, half_width: float = 0.19, shift: float = 0.0, scale: float = 0.0, key: str = "R_velocity"):
+    def calc_curve(self, half_width: float = 0.19, shift: float = 0.0, scale: float = 1.0, key: str = "R_velocity"):
         x_values = np.arange(self.calc_start, self.calc_stop, self.calc_step)
         for _c in self.mols:
             y_values = np.zeros(len(x_values))
@@ -100,6 +106,24 @@ class EcdBox(ToolBox):
                 linestyle="-",
                 label=_c.name,
             )
+            if with_ent:
+                ax.plot(
+                    [xy[0] for xy in _c.data[self.curve_key]],
+                    [-1 * xy[1] for xy in _c.data[self.curve_key]],
+                    color="black",
+                    linewidth=1.5,
+                    linestyle="--",
+                    label=_c.name,
+                )
+            if with_expt:
+                ax.plot(
+                    [xy[0] for xy in self.expt],
+                    [-1 * xy[1] for xy in self.expt],
+                    color="black",
+                    linewidth=1.5,
+                    linestyle="-.",
+                    label=_c.name,
+                )
             _p = change_dir(_c.path, directory).with_suffix(".png")
             plt.savefig(_p, transparent=transparent, dpi=600)
             logger.info(f"ECD spectra of {_c.name} plotted")

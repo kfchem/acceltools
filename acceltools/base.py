@@ -19,3 +19,7 @@ class ToolBox:
     @property
     def mols(self):
         return self._mols.has_state(True)
+
+    @property
+    def allmols(self) -> Mols:
+        return self._mols.has_state(None)

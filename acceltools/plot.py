@@ -1,9 +1,9 @@
 from pathlib import Path
-from typing import List
+from typing import Iterable, Union
 
 import matplotlib.pyplot as plt
 from accel.base.box import Box
-from accel.base.mols import Mol
+from accel.base.mols import Mol, Mols
 from accel.util.log import logger
 from matplotlib.axes import Axes
 
@@ -25,10 +25,14 @@ def _marker_generator(maker: str = None):
 
 
 class PlotBox(ToolBox):
+    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+        self.path: Path = None
+        super().__init__(box)
+
     def diagram(
         self,
         filepath: Path,
-        diagram_roles: List[str] = ["reactant", "ts", "product"],
+        diagram_roles: list[str] = ["reactant", "ts", "product"],
         zero_role_index: int = 0,
         role_key: str = "diagram_role",
         connection_key: str = "diagram_connection",
@@ -41,7 +45,7 @@ class PlotBox(ToolBox):
         ax.set_xlim(0, (len(diagram_roles) + 1) * 2)
         ax.set_xticks([])
         x_values = {_key: [(i * 2) + 1, (i * 2) + 2] for i, _key in enumerate(diagram_roles)}
-        ploted_conf: List[Mol] = []
+        ploted_conf: list[Mol] = []
         for _role in diagram_roles:
             for _confs in Box(self.mols.has_data(role_key, _role)).mols.labels.values():
                 ploted_conf.append(sorted(_confs, key=lambda t: t.energy)[0])
@@ -49,7 +53,7 @@ class PlotBox(ToolBox):
         for _c in ploted_conf:
             _key = _c.data[role_key]
             _energy = _c.energy - _ze
-            _connect: List[str] = _c.data.get(connection_key)
+            _connect: list[str] = _c.data.get(connection_key)
             _role_idx = diagram_roles.index(_key)
             if _connect is not None and len(_connect) == 2:
                 for _tc in ploted_conf:
@@ -94,7 +98,8 @@ class PlotBox(ToolBox):
         plt.savefig(_png, transparent=False, dpi=300)
         plt.close()
         logger.info(f"{str(_png)} was ploted")
-        return _png
+        self.path = _png
+        return self
 
     def scatter(
         self,
@@ -153,4 +158,8 @@ class PlotBox(ToolBox):
         plt.savefig(_png, transparent=False, dpi=300)
         plt.close()
         logger.info(f"{str(_png)} was ploted")
-        return _png
+        self.path = _png
+        return self
+
+    def line(self):
+        return self
