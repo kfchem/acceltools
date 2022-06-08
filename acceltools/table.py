@@ -30,6 +30,6 @@ class TableBox(ToolBox):
                 else:
                     ser_dict[key] = _c.data.get(key)
             _ser = pd.Series(ser_dict, name=_c.name)
-            df = df.append(_ser)
+            df = pd.concat([df, pd.DataFrame([_ser])])
             logger.info(f"data of {_c.name} was added to dataframe")
         return df
