@@ -21,8 +21,8 @@ def get_average(mols: Mols, averaged_mols: Mols = None, ecd_key="ecd") -> Mols:
         for idx in range(len(confs)):
             for state_number, state_dict in confs[idx].data["ecd"].items():
                 w_state = deepcopy(state_dict)
-                w_state["R_velocity"] *= confs[idx].data["distribution"]
-                w_state["R_length"] *= confs[idx].data["distribution"]
+                w_state["R_velocity"] *= confs[idx].distribution
+                w_state["R_length"] *= confs[idx].distribution
                 ecd_dict[f"{idx}_{confs[idx].name}_{state_number}"] = w_state
         ave.data["ecd"] = ecd_dict
     return averaged_mols
