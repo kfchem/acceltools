@@ -105,7 +105,7 @@ class EcdBox(ToolBox):
                 x_vals = [abs(xy[1]) for xy in _c.data[self.curve_key] if start <= xy[0] and xy[0] <= stop]
                 abs_max = max([abs_max] + x_vals)
             max_strength = abs_max * 1.1
-
+        Path(directory).mkdir(exist_ok=True)
         for _c in self.mols:
             if max_strength == 0:
                 max_strength = max([abs(xy[1]) for xy in _c.data[self.curve_key] if start <= xy[0] and xy[0] <= stop])
@@ -146,7 +146,6 @@ class EcdBox(ToolBox):
                     linestyle="-.",
                     label=_c.name,
                 )
-            Path(directory).mkdir(exist_ok=True)
             _p = Path(directory).joinpath(_c.name).with_suffix(".png")
             plt.savefig(_p, transparent=transparent, dpi=600)
             logger.info(f"ECD spectra of {_c.name} plotted")
@@ -169,7 +168,7 @@ class EcdBox(ToolBox):
                 x_vals = [abs(xy[1]) for xy in _c.data[self.curve_key_uv] if start <= xy[0] and xy[0] <= stop]
                 abs_max = max([abs_max] + x_vals)
             max_strength = abs_max * 1.1
-
+        Path(directory).mkdir(exist_ok=True)
         for _c in self.mols:
             if max_strength == 0:
                 max_strength = max(
@@ -196,9 +195,19 @@ class EcdBox(ToolBox):
                     linestyle="-.",
                     label=_c.name,
                 )
-            Path(directory).mkdir(exist_ok=True)
             _p = Path(directory).joinpath(_c.name).with_suffix(".png")
             plt.savefig(_p, transparent=transparent, dpi=600)
             logger.info(f"UV spectra of {_c.name} plotted")
             plt.close()
         return self
+
+    def write_csv(self, directory: Path):
+        Path(directory).mkdir(exist_ok=True)
+        for c in self.mols:
+            p = Path(directory).joinpath(c.name).with_suffix(".csv")
+            with p.open("w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["X (nm)", "Y (Mol-1cm-1)"])
+                w.writerows(c.data[self.curve_key])
+            logger.info(f"curve data was exported as {p.name}")
+        return
