@@ -12,17 +12,22 @@ from accel.util.log import logger
 from acceltools.base import ToolBox
 
 
-def get_average(mols: Mols, averaged_mols: Mols = None, ecd_key="ecd") -> Mols:
+def get_average(
+    mols: Mols, averaged_mols: Mols = None, ecd_key="ecd", weighted_keys=["R_velocity", "R_length", "f"]
+) -> Mols:
     if averaged_mols is None:
         averaged_mols = Box().bind(mols).get_average()
     for ave in averaged_mols:
         ecd_dict = {}
         confs = mols.has_state().has_label(ave.name)
         for idx in range(len(confs)):
-            for state_number, state_dict in confs[idx].data["ecd"].items():
+            for state_number, state_dict in confs[idx].data[ecd_key].items():
                 w_state = deepcopy(state_dict)
-                w_state["R_velocity"] *= confs[idx].distribution
-                w_state["R_length"] *= confs[idx].distribution
+                for _key in weighted_keys:
+                    if _key not in w_state:
+                        logger.error(f"weighted key {_key} not found in data {ecd_key}")
+                        continue
+                    w_state[_key] *= confs[idx].distribution
                 ecd_dict[f"{idx}_{confs[idx].name}_{state_number}"] = w_state
         ave.data["ecd"] = ecd_dict
     return averaged_mols
