@@ -210,4 +210,15 @@ class EcdBox(ToolBox):
                 w.writerow(["X (nm)", "Y (Mol-1cm-1)"])
                 w.writerows(c.data[self.curve_key])
             logger.info(f"curve data was exported as {p.name}")
-        return
+        return self
+
+    def write_csv_uv(self, directory: Path):
+        Path(directory).mkdir(exist_ok=True)
+        for c in self.mols:
+            p = Path(directory).joinpath(c.name).with_suffix(".csv")
+            with p.open("w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["X (nm)", "Y (Mol-1cm-1)"])
+                w.writerows(c.data[self.curve_key_uv])
+            logger.info(f"curve data was exported as {p.name}")
+        return self
