@@ -17,7 +17,7 @@ setup(
     author_email="kfukaya@pu-toyama.ac.jp",
     url="https://github.com/kfchem/acceltools",
     license="MIT License",
-    install_requires=["accel", "pandas", "scipy", "matplotlib"],
+    install_requires=["accel>=0.0.13", "pandas", "scipy", "matplotlib", "python-docx"],
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
