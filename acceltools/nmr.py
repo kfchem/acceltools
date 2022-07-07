@@ -1,7 +1,7 @@
 import csv
 from collections.abc import MutableSequence
 from pathlib import Path
-from typing import Iterator, Union
+from typing import Iterable, Iterator, Union
 
 import numpy as np
 from accel.base.box import Box
@@ -219,9 +219,12 @@ def get_expt(experiment_csv_file: Union[str, Path], ver: int = 2) -> Peaks:
     elif ver == 2:
         index_list = []
         for _id, _l in enumerate(_ls):
-            index_list.append(_l[0])
+            index_list.append(int(_l[0]))
             _pk = Peak()
-            _pk.val = float(_l[1])
+            if "--" in _l[1] or _l[1].lower() in ["none", "nan", ""]:
+                _pk.val = None
+            else:
+                _pk.val = float(_l[1])
             _pk.name = _l[2]
             _pk.numbers = [int(i) for i in _l[3].split()]
             _pk.is_sp3 = not bool(_l[6])
@@ -229,9 +232,9 @@ def get_expt(experiment_csv_file: Union[str, Path], ver: int = 2) -> Peaks:
             _peaks.append(_pk)
         for _id, _l in enumerate(_ls):
             if _l[4] != "":
-                _peaks[_id].dtopic = _peaks(index_list.index(int(_l[4])))
+                _peaks[_id].dtopic = _peaks[index_list.index(int(_l[4]))]
             if _l[5] != "":
-                _peaks[_id].root = _peaks(index_list.index(int(_l[5])))
+                _peaks[_id].root = _peaks[index_list.index(int(_l[5]))]
     return _peaks
 
 
@@ -338,8 +341,8 @@ def get_swapped(assigned: Peaks, expt: Peaks) -> Peaks:
     return swapped
 
 
-def export_peak(peaks: Peaks, filepath: Union[str, Path] = None) -> Path:
-    keys = ["Shift", "Name", "Nuclei", "Number", "sp2"]
+def export_peaks(peaks: Peaks, filepath: Union[str, Path] = None) -> Path:
+    keys = ["Value", "Name", "Number", "Nuclei", "sp3"]
     vals_dicts = []
     for _p in peaks:
         dicts = {
@@ -382,7 +385,7 @@ def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: fl
 
 
 class NmrBox(ToolBox):
-    def __init__(self, value: Union[Box, Mols]):
+    def __init__(self, value: Union[Box, Mols, Iterable[Mol], Mol]):
         self.expt: Peaks = None
         self.ref: dict[str, float] = None
         self.tensor: list[Peaks] = []
@@ -747,3 +750,20 @@ class NmrBox(ToolBox):
         t_probs["All"] = [t_probs["C"][idx] * t_probs["H"][idx] * t_probs["N"][idx] for idx in range(len(labels))]
         self.data[f"{key}_All"] = {_l: 100.0 * _val / sum(t_probs["All"]) for _l, _val in zip(labels, t_probs["All"])}
         return self.stop_analysis()
+
+    def export_assigned(self, filepath: Path = None):
+        self.check_assign()
+        keys = ["name", "number", "nuclei", "expt"]
+        rows = [[_p.name, " ".join([str(_n) for _n in _p.numbers]), _p.nuclei, _p.val] for _p in self.expt]
+        for _ps in self.assigned:
+            keys.append(_ps.label)
+            for idx, _r in enumerate(rows):
+                _r.append(_ps[idx].val)
+        if filepath is None:
+            filepath = Path.cwd().joinpath(self.expt.label)
+        elif filepath.is_dir():
+            filepath = filepath.joinpath(self.expt.label)
+        _p = Path(filepath).with_suffix(".csv")
+        with _p.open("w", newline="") as f:
+            csv.writer(f).writerows([keys] + rows)
+        return self
