@@ -12,7 +12,8 @@ class ToolBox:
         elif isinstance(box, Mols):
             self._mols: Mols = box
         elif isinstance(box, Mol):
-            self._mols: Mols = Mols().append(box)
+            self._mols: Mols = Mols()
+            self._mols.append(box)
         else:
             self._mols: Mols = Box(box).mols
 
