@@ -1,3 +1,4 @@
+import copy
 from pathlib import Path
 from typing import Iterable, Union
 
@@ -36,30 +37,37 @@ class PlotBox(ToolBox):
         zero_role_index: int = 0,
         role_key: str = "diagram_role",
         connection_key: str = "diagram_connection",
+        non_mimimum: bool = True,
     ):
 
         _ze = min(_c.energy for _c in self.mols.has_data(role_key, diagram_roles[zero_role_index]))
 
-        fig = plt.figure()
+        fig = plt.figure(figsize=((2 * len(diagram_roles)) + 0.4, 4.8))
         ax: Axes = fig.add_subplot(1, 1, 1)
         ax.set_xlim(0, (len(diagram_roles) + 1) * 2)
         ax.set_xticks([])
         x_values = {_key: [(i * 2) + 1, (i * 2) + 2] for i, _key in enumerate(diagram_roles)}
         ploted_conf: list[Mol] = []
+        non_mimimum_conf: list[list[Mol]] = []
         for _role in diagram_roles:
             for _confs in Box(self.mols.has_data(role_key, _role)).mols.labels.values():
-                ploted_conf.append(sorted(_confs, key=lambda t: t.energy)[0])
+                _confs_orderd = sorted(_confs, key=lambda t: t.energy)
+                ploted_conf.append(_confs_orderd[0])
+                non_mimimum_conf.append(_confs_orderd[1:])
 
-        for _c in ploted_conf:
+        for _c, _non_min_cs in zip(ploted_conf, non_mimimum_conf):
             _key = _c.data[role_key]
             _energy = _c.energy - _ze
-            _connect: list[str] = _c.data.get(connection_key)
+            _connect: list[list[str]] = copy.deepcopy(_c.data.get(connection_key))
             _role_idx = diagram_roles.index(_key)
             if _connect is not None and len(_connect) == 2:
+                for _idx in range(len(_connect)):
+                    if isinstance(_connect[_idx], str):
+                        _connect[_idx] = [_connect[_idx]]
                 for _tc in ploted_conf:
                     if _role_idx == 0:
                         pass
-                    elif _tc.data[role_key] == diagram_roles[_role_idx - 1] and _tc.label == _connect[0]:
+                    elif _tc.data[role_key] == diagram_roles[_role_idx - 1] and _tc.label in _connect[0]:
                         ax.plot(
                             [x_values[_key][0] - 1, x_values[_key][0]],
                             [_tc.energy - _ze, _energy],
@@ -69,7 +77,7 @@ class PlotBox(ToolBox):
                         )
                     if _role_idx == len(diagram_roles) - 1:
                         pass
-                    elif _tc.data[role_key] == diagram_roles[_role_idx + 1] and _tc.label == _connect[1]:
+                    elif _tc.data[role_key] == diagram_roles[_role_idx + 1] and _tc.label in _connect[1]:
                         ax.plot(
                             [x_values[_key][1], x_values[_key][1] + 1],
                             [_energy, _tc.energy - _ze],
@@ -94,6 +102,17 @@ class PlotBox(ToolBox):
                 va="center",
                 ha="right",
             )
+            if non_mimimum:
+                for _non_min in _non_min_cs:
+                    _energy = _non_min.energy - _ze
+                    ax.plot(
+                        x_values[_key],
+                        [_energy, _energy],
+                        color="black",
+                        linewidth=0.1,
+                        linestyle="-",
+                    )
+
         _png = Path(filepath).with_suffix(".png")
         plt.savefig(_png, transparent=False, dpi=300)
         plt.close()
