@@ -5,7 +5,7 @@ from typing import Iterable, Iterator, Union
 
 import numpy as np
 from accel.base.box import Box
-from accel.base.mols import Mol, Mols
+from accel.base.systems import System, Systems
 from accel.util.constants import Elements
 from accel.util.datadict import Data
 from accel.util.log import logger
@@ -238,7 +238,7 @@ def get_expt(experiment_csv_file: Union[str, Path], ver: int = 2) -> Peaks:
     return _peaks
 
 
-def get_tensor(mol: Mol, key: str = "isotropic") -> Peaks:
+def get_tensor(mol: System, key: str = "isotropic") -> Peaks:
     _peaks = Peaks(mol.name)
     for _a in mol.atoms:
         _p = Peak()
@@ -385,7 +385,7 @@ def get_n_probability(assigned: Peaks, expt: Peaks, mean: float = 0.0, stdev: fl
 
 
 class NmrBox(ToolBox):
-    def __init__(self, value: Union[Box, Mols, Iterable[Mol], Mol]):
+    def __init__(self, contents: Union[Box, Systems, Iterable[System], System]):
         self.expt: Peaks = None
         self.ref: dict[str, float] = None
         self.tensor: list[Peaks] = []
@@ -395,7 +395,7 @@ class NmrBox(ToolBox):
         self._assigned_for_analysis: list[Peaks] = []
         self.data = Data(self)
         self.analyzing = False
-        super().__init__(value)
+        super().__init__(contents)
 
     @property
     def shift(self) -> list[Peaks]:
@@ -442,7 +442,7 @@ class NmrBox(ToolBox):
         return self
 
     def load_tensor(self, tensor_key="isotropic"):
-        for _c in self.mols:
+        for _c in self.get():
             self.tensor.append(get_tensor(_c, key=tensor_key))
         return self
 

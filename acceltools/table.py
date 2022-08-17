@@ -9,7 +9,7 @@ from acceltools.base import ToolBox
 class TableBox(ToolBox):
     def get_df(self, data_list: List[str] = []):
         df = pd.DataFrame()
-        for _c in self.mols:
+        for c in self.get():
             ser_dict = {}
             for key in data_list:
                 if key in [
@@ -26,10 +26,10 @@ class TableBox(ToolBox):
                     "total_charge",
                     "multiplicity",
                 ]:
-                    ser_dict[key] = getattr(_c, key)
+                    ser_dict[key] = getattr(c, key)
                 else:
-                    ser_dict[key] = _c.data.get(key)
-            _ser = pd.Series(ser_dict, name=_c.name)
+                    ser_dict[key] = c.data.get(key)
+            _ser = pd.Series(ser_dict, name=c.name)
             df = pd.concat([df, pd.DataFrame([_ser])])
-            logger.info(f"data of {_c.name} was added to dataframe")
+            logger.info(f"data of {c.name} was added to dataframe")
         return df

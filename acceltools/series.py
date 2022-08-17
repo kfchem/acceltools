@@ -1,11 +1,9 @@
 import math
 from typing import Iterable, Sequence, Set, Tuple, Union
 
-from accel import Mol
 from accel.base.atoms import Atoms
 from accel.base.box import Box
-from accel.base.mols import Mols
-from accel.base.xyz import get_dihedral
+from accel.base.systems import System, Systems
 
 from acceltools.base import ToolBox
 
@@ -55,9 +53,9 @@ def _remove_hydrogen(bonds: Set[Tuple[int]], atoms: Atoms) -> Set[Tuple[int]]:
 
 
 class SeriesBox(ToolBox):
-    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+    def __init__(self, contents: Union[Box, Systems, Iterable[System], System]):
         self.keys: list[str] = None
-        super().__init__(box)
+        super().__init__(contents)
 
     def modify_length(
         self,
@@ -75,77 +73,74 @@ class SeriesBox(ToolBox):
         target = begin
         count = 0
         while target < end:
-            mc = Box().bind(self.mols).duplicate()
+            mc = Box().bind(self.get()).duplicate()
             mc.modify_length(number_a, number_b, target, fix_a, fix_b, numbers_along_with_a, numbers_along_with_b)
-            for _c in mc.mols:
-                _c.name = f"{_c.name}_{count:03d}"
-            ret_list.extend(mc.mols.to_list())
+            for c in mc.get():
+                c.name = f"{c.name}_{count:03d}"
+                ret_list.append(c)
             target += step
             count += 1
-        return Mols().bind(ret_list)
+        return Systems().bind(ret_list)
 
     def calc_length(self, all=False, key: str = "L_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mols.labels.values():
-            label_mc = Box(confs)
-            _atoms = label_mc.mols.get().atoms
+        for confs in self.get().labels.values():
+            box = Box(confs)
+            _atoms = confs.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
             for bond in _bonds:
                 tkey = f"{key}{_atoms.get(bond[0])}-{_atoms.get(bond[1])}"
-                label_mc.calc_length(bond[0], bond[1], tkey)
+                box.calc_length(bond[0], bond[1], tkey)
                 key_list.append(tkey)
         self.keys = key_list
         return self
 
     def calc_angle(self, all=False, key: str = "A_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mols.labels.values():
-            label_mc = Box(confs)
-            _atoms = label_mc.mols.get().atoms
+        for confs in self.get().labels.values():
+            box = Box(confs)
+            _atoms = confs.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
             for angles in _get_angle_set(_bonds):
                 tkey = f"{key}{_atoms.get(angles[0])}-{_atoms.get(angles[1])}-{_atoms.get(angles[2])}"
-                label_mc.calc_angle(angles[0], angles[1], angles[2], tkey)
+                box.calc_angle(angles[0], angles[1], angles[2], tkey)
                 key_list.append(tkey)
         self.keys = key_list
         return self
 
     def calc_dihedral(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mols.labels.values():
-            label_mc = Box(confs)
-            _atoms = label_mc.mols.get().atoms
+        for confs in self.get().labels.values():
+            box = Box(confs)
+            _atoms = confs.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
             for dhs in _get_dihedral_set(_bonds):
                 tkey = f"{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
-                label_mc.calc_dihedral(dhs[0], dhs[1], dhs[2], dhs[3], tkey)
+                box.calc_dihedral(dhs[0], dhs[1], dhs[2], dhs[3], tkey)
                 key_list.append(tkey)
         self.keys = key_list
         return self
 
     def calc_dihedral_xy(self, all=False, key: str = "D_", in_label=True, ignore_hydrogen=True):
         key_list = []
-        for confs in self.mols.labels.values():
-            label_mc = Box(confs)
-            _atoms = label_mc.mols.get().atoms
+        for confs in self.get().labels.values():
+            _atoms = confs.get().atoms
             _bonds = _atoms.bonds.keys()
             if ignore_hydrogen:
                 _bonds = _remove_hydrogen(_bonds, _atoms)
             for dhs in _get_dihedral_set(_bonds):
                 xkey = f"X{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
                 ykey = f"Y{key}{_atoms.get(dhs[0])}-{_atoms.get(dhs[1])}-{_atoms.get(dhs[2])}-{_atoms.get(dhs[3])}"
-                for _c in label_mc.mols:
-                    d_degree = get_dihedral(
-                        _c.atoms.get(dhs[0]), _c.atoms.get(dhs[1]), _c.atoms.get(dhs[2]), _c.atoms.get(dhs[3])
-                    )
-                    _c.data[xkey] = math.cos(math.radians(d_degree))
-                    _c.data[ykey] = math.sin(math.radians(d_degree))
+                for c in confs:
+                    d_degree = c.atoms.get_dihedral(dhs[0], dhs[1], dhs[2], dhs[3])
+                    c.data[xkey] = math.cos(math.radians(d_degree))
+                    c.data[ykey] = math.sin(math.radians(d_degree))
                 key_list.append(xkey)
                 key_list.append(ykey)
         self.keys = key_list

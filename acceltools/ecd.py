@@ -6,20 +6,20 @@ from typing import Iterable, Union
 import matplotlib.pyplot as plt
 import numpy as np
 from accel.base.box import Box
-from accel.base.mols import Mol, Mols
+from accel.base.systems import System, Systems
 from accel.util.log import logger
 
 from acceltools.base import ToolBox
 
 
 def get_average(
-    mols: Mols, averaged_mols: Mols = None, ecd_key="ecd", weighted_keys=["R_velocity", "R_length", "f"]
-) -> Mols:
-    if averaged_mols is None:
-        averaged_mols = Box().bind(mols).get_average()
-    for ave in averaged_mols:
+    systems: Systems, averaged_systems: Systems = None, ecd_key="ecd", weighted_keys=["R_velocity", "R_length", "f"]
+) -> Systems:
+    if averaged_systems is None:
+        averaged_systems = Box().bind(systems).get_average()
+    for ave in averaged_systems:
         ecd_dict = {}
-        confs = mols.has_state().has_label(ave.name)
+        confs = systems.has_state().has_label(ave.name)
         for idx in range(len(confs)):
             for state_number, state_dict in confs[idx].data[ecd_key].items():
                 w_state = deepcopy(state_dict)
@@ -30,11 +30,11 @@ def get_average(
                     w_state[_key] *= confs[idx].distribution
                 ecd_dict[f"{idx}_{confs[idx].name}_{state_number}"] = w_state
         ave.data["ecd"] = ecd_dict
-    return averaged_mols
+    return averaged_systems
 
 
 class EcdBox(ToolBox):
-    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+    def __init__(self, contents: Union[Box, Systems, Iterable[System], System]):
         self.expt: list[tuple[float]] = []
         self.expt_uv: list[tuple[float]] = []
         self.ecd_key: str = "ecd"
@@ -46,7 +46,7 @@ class EcdBox(ToolBox):
         self.calc_start: float = 100
         self.calc_stop: float = 800
         self.calc_step: float = 0.1
-        super().__init__(box)
+        super().__init__(contents)
 
     def load_expt(self, filepath: Union[Path, str], x_column: int = 1, y_column: int = 2, start_row: int = 2):
         with Path(filepath).open() as f:
@@ -56,12 +56,12 @@ class EcdBox(ToolBox):
             self.expt.append((float(_l[x_column - 1]), float(_l[y_column - 1])))
         return self
 
-    def get_average(self) -> Mols:
-        return get_average(self.mols, ecd_key=self.ecd_key)
+    def get_average(self) -> Systems:
+        return get_average(self.get(), ecd_key=self.ecd_key)
 
     def calc_curve(self, half_width: float = 0.19, shift: float = 0.0, scale: float = 1.0, key: str = "R_velocity"):
         x_values = np.arange(self.calc_start, self.calc_stop, self.calc_step)
-        for _c in self.mols:
+        for _c in self.get():
             y_values = np.zeros(len(x_values))
             for state_num in _c.data[self.ecd_key]:
                 _d: dict[str, Union[float, str]] = _c.data[self.ecd_key][state_num]
@@ -78,7 +78,7 @@ class EcdBox(ToolBox):
 
     def calc_curve_uv(self, half_width: float = 0.19, shift: float = 0.0, scale: float = 1.0, key: str = "f"):
         x_values = np.arange(self.calc_start, self.calc_stop, self.calc_step)
-        for _c in self.mols:
+        for _c in self.get():
             y_values = np.zeros(len(x_values))
             for state_num in _c.data[self.ecd_key]:
                 _d: dict[str, Union[float, str]] = _c.data[self.ecd_key][state_num]
@@ -106,12 +106,12 @@ class EcdBox(ToolBox):
     ):
         if max_strength is None:
             abs_max = 0.0
-            for _c in self.mols:
+            for _c in self.get():
                 x_vals = [abs(xy[1]) for xy in _c.data[self.curve_key] if start <= xy[0] and xy[0] <= stop]
                 abs_max = max([abs_max] + x_vals)
             max_strength = abs_max * 1.1
         Path(directory).mkdir(exist_ok=True)
-        for _c in self.mols:
+        for _c in self.get():
             if max_strength == 0:
                 max_strength = max([abs(xy[1]) for xy in _c.data[self.curve_key] if start <= xy[0] and xy[0] <= stop])
             fig = plt.figure()
@@ -169,12 +169,12 @@ class EcdBox(ToolBox):
     ):
         if max_strength is None:
             abs_max = 0.0
-            for _c in self.mols:
+            for _c in self.get():
                 x_vals = [abs(xy[1]) for xy in _c.data[self.curve_key_uv] if start <= xy[0] and xy[0] <= stop]
                 abs_max = max([abs_max] + x_vals)
             max_strength = abs_max * 1.1
         Path(directory).mkdir(exist_ok=True)
-        for _c in self.mols:
+        for _c in self.get():
             if max_strength == 0:
                 max_strength = max(
                     [abs(xy[1]) for xy in _c.data[self.curve_key_uv] if start <= xy[0] and xy[0] <= stop]
@@ -208,22 +208,22 @@ class EcdBox(ToolBox):
 
     def write_csv(self, directory: Path):
         Path(directory).mkdir(exist_ok=True)
-        for c in self.mols:
+        for c in self.get():
             p = Path(directory).joinpath(c.name).with_suffix(".csv")
             with p.open("w", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["X (nm)", "Y (Mol-1cm-1)"])
+                w.writerow(["X (nm)", "Y (System-1cm-1)"])
                 w.writerows(c.data[self.curve_key])
             logger.info(f"curve data was exported as {p.name}")
         return self
 
     def write_csv_uv(self, directory: Path):
         Path(directory).mkdir(exist_ok=True)
-        for c in self.mols:
+        for c in self.get():
             p = Path(directory).joinpath(c.name).with_suffix(".csv")
             with p.open("w", newline="") as f:
                 w = csv.writer(f)
-                w.writerow(["X (nm)", "Y (Mol-1cm-1)"])
+                w.writerow(["X (nm)", "Y (System-1cm-1)"])
                 w.writerows(c.data[self.curve_key_uv])
             logger.info(f"curve data was exported as {p.name}")
         return self

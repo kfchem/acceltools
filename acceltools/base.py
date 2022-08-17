@@ -1,26 +1,20 @@
 from typing import Iterable, Union
 
-from accel import Mol
 from accel.base.box import Box
-from accel.base.mols import Mols
+from accel.base.systems import System, Systems
 
 
 class ToolBox:
-    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
-        if isinstance(box, Box):
-            self._mols: Mols = box.mols
-        elif isinstance(box, Mols):
-            self._mols: Mols = box
-        elif isinstance(box, Mol):
-            self._mols: Mols = Mols()
-            self._mols.append(box)
+    def __init__(self, contents: Union[Box, Systems, Iterable[System], System]):
+        if isinstance(contents, Box):
+            self.contents: Systems = contents.get()
+        elif isinstance(contents, Systems):
+            self.contents: Systems = contents
+        elif isinstance(contents, System):
+            self.contents: Systems = Systems()
+            self.contents.append(contents)
         else:
-            self._mols: Mols = Box(box).mols
+            self.contents: Systems = Box(contents).get()
 
-    @property
-    def mols(self):
-        return self._mols.has_state(True)
-
-    @property
-    def allmols(self) -> Mols:
-        return self._mols.has_state(None)
+    def get(self) -> Systems:
+        return self.contents.has_state(True)

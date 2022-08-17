@@ -4,7 +4,7 @@ from typing import Iterable, Union
 
 import matplotlib.pyplot as plt
 from accel.base.box import Box
-from accel.base.mols import Mol, Mols
+from accel.base.systems import System, Systems
 from accel.util.log import logger
 from matplotlib.axes import Axes
 
@@ -26,9 +26,9 @@ def _marker_generator(maker: str = None):
 
 
 class PlotBox(ToolBox):
-    def __init__(self, box: Union[Box, Mols, Iterable[Mol], Mol]):
+    def __init__(self, contents: Union[Box, Systems, Iterable[System], System]):
         self.path: Path = None
-        super().__init__(box)
+        super().__init__(contents)
 
     def diagram(
         self,
@@ -40,17 +40,17 @@ class PlotBox(ToolBox):
         non_mimimum: bool = True,
     ):
 
-        _ze = min(_c.energy for _c in self.mols.has_data(role_key, diagram_roles[zero_role_index]))
+        _ze = min(_c.energy for _c in self.get().has_data(role_key, diagram_roles[zero_role_index]))
 
         fig = plt.figure(figsize=((2 * len(diagram_roles)) + 0.4, 4.8))
         ax: Axes = fig.add_subplot(1, 1, 1)
         ax.set_xlim(0, (len(diagram_roles) + 1) * 2)
         ax.set_xticks([])
         x_values = {_key: [(i * 2) + 1, (i * 2) + 2] for i, _key in enumerate(diagram_roles)}
-        ploted_conf: list[Mol] = []
-        non_mimimum_conf: list[list[Mol]] = []
+        ploted_conf: list[System] = []
+        non_mimimum_conf: list[list[System]] = []
         for _role in diagram_roles:
-            for _confs in Box(self.mols.has_data(role_key, _role)).mols.labels.values():
+            for _confs in Box(self.get().has_data(role_key, _role)).get().labels.values():
                 _confs_orderd = sorted(_confs, key=lambda t: t.energy)
                 ploted_conf.append(_confs_orderd[0])
                 non_mimimum_conf.append(_confs_orderd[1:])
@@ -136,7 +136,7 @@ class PlotBox(ToolBox):
         ax.tick_params(direction="in")
         maker = _marker_generator(marker)
         _legend = []
-        for label, _confs in self.mols.labels.items():
+        for label, _confs in self.get().labels.items():
             _x = [_c.energy for _c in _confs]
             ax.set_xlabel("Energy")
             _y = [_c.energy for _c in _confs]
