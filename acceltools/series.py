@@ -1,9 +1,13 @@
 import math
+from pathlib import Path
+from statistics import mean
 from typing import Iterable, Sequence, Set, Tuple, Union
 
 from accel.base.atoms import Atoms
 from accel.base.box import Box
 from accel.base.systems import System, Systems
+from accel.base.tools import change_dir, float_to_str
+from accel.util.log import logger
 
 from acceltools.base import ToolBox
 
@@ -144,4 +148,33 @@ class SeriesBox(ToolBox):
                 key_list.append(xkey)
                 key_list.append(ykey)
         self.keys = key_list
+        return self
+
+    def write_trjxyz(self, output_dir: Path = None, order_key: str = None, centering: bool = True):
+        for label, cs in self.get().labels.items():
+            csls = cs.to_list()
+            if order_key is not None:
+                csls = [c for c in csls if c.data.get(order_key) is not None]
+                csls = sorted(csls, key=lambda c: c.data[order_key])
+            ls = []
+            for c in csls:
+                ls.append(f"{len(c.atoms)}\n")
+                ls.append(f"{c.name}\n")
+                if centering:
+                    centering_vec = [mean([a.xyz[i] for a in c.atoms]) for i in range(3)]
+                    try:
+                        prec = max(max(len(float_to_str(a.xyz[i]).split(".")[1]) for a in c.atoms) for i in range(3))
+                    except IndexError:
+                        logger.error(f"could not resolve the precision in converting to xyz file of {c.name}")
+                        prec = 10
+                    centering_vec = [round(val, prec) for val in centering_vec]
+                for a in c.atoms:
+                    xyz = [a.x, a.y, a.z]
+                    if centering:
+                        xyz = [float_to_str(round(val - centering_vec[i], prec)) for i, val in enumerate(xyz)]
+                    xyz = [float_to_str(val) for val in xyz]
+                    ls.append(f"{a.symbol:<2} {xyz[0]:>15} {xyz[1]:>15} {xyz[2]:>15}\n")
+            with change_dir(cs.get().path, output_dir, label).with_suffix(".xyz").open("w") as f:
+                f.writelines(ls)
+            logger.debug(f"{label}.xyz was exported")
         return self
