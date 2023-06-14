@@ -38,13 +38,21 @@ class PlotBox(ToolBox):
         role_key: str = "diagram_role",
         connection_key: str = "diagram_connection",
         non_mimimum: bool = True,
+        with_svg: bool = True,
+        y_bottom: float = None,
+        y_top: float = None,
     ):
-
         _ze = min(_c.energy for _c in self.get().has_data(role_key, diagram_roles[zero_role_index]))
 
         fig = plt.figure(figsize=((2 * len(diagram_roles)) + 0.4, 4.8))
         ax: Axes = fig.add_subplot(1, 1, 1)
         ax.set_xlim(0, (len(diagram_roles) + 1) * 2)
+        if y_bottom is not None and y_top is None:
+            ax.set_ylim(bottom=y_bottom)
+        elif y_bottom is None and y_top is not None:
+            ax.set_ylim(top=y_top)
+        elif y_bottom is not None and y_top is not None:
+            ax.set_ylim(bottom=y_bottom, top=y_top)
         ax.set_xticks([])
         x_values = {_key: [(i * 2) + 1, (i * 2) + 2] for i, _key in enumerate(diagram_roles)}
         ploted_conf: list[System] = []
@@ -53,7 +61,7 @@ class PlotBox(ToolBox):
             for _confs in Box(self.get().has_data(role_key, _role)).get().labels.values():
                 _confs_orderd = sorted(_confs, key=lambda t: t.energy)
                 ploted_conf.append(_confs_orderd[0])
-                non_mimimum_conf.append(_confs_orderd[1:])
+                non_mimimum_conf.append(_confs_orderd)
 
         for _c, _non_min_cs in zip(ploted_conf, non_mimimum_conf):
             _key = _c.data[role_key]
@@ -112,9 +120,21 @@ class PlotBox(ToolBox):
                         linewidth=0.1,
                         linestyle="-",
                     )
+            for c in _non_min_cs:
+                if c.data.get("highlight") is True:
+                    _energy = c.energy - _ze
+                    ax.plot(
+                        x_values[_key],
+                        [_energy, _energy],
+                        color="#CD4560",
+                        linewidth=1.5,
+                        linestyle="-",
+                    )
 
         _png = Path(filepath).with_suffix(".png")
-        plt.savefig(_png, transparent=False, dpi=300)
+        plt.savefig(_png, transparent=False, dpi=600)
+        if with_svg:
+            plt.savefig(_png.with_suffix(".svg"), transparent=False, dpi=600)
         plt.close()
         logger.info(f"{str(_png)} was ploted")
         self.path = _png
@@ -130,6 +150,7 @@ class PlotBox(ToolBox):
         color=True,
         size_by_energy=False,
         color_by_energy=False,
+        with_svg: bool = True,
     ):
         fig = plt.figure()
         ax: Axes = fig.add_subplot(1, 1, 1)
@@ -175,6 +196,8 @@ class PlotBox(ToolBox):
         _png = Path(filepath).with_suffix(".png")
         ax.set_title(_png.stem)
         plt.savefig(_png, transparent=False, dpi=300)
+        if with_svg:
+            plt.savefig(_png.with_suffix(".svg"), transparent=False, dpi=600)
         plt.close()
         logger.info(f"{str(_png)} was ploted")
         self.path = _png
