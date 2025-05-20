@@ -165,7 +165,7 @@ class DocBox(ToolBox):
         section.bottom_margin = Mm(30)
         section.header_distance = Mm(0)
         section.footer_distance = Mm(12.7)
-        document.styles["Normal"].font.name = "Times New Rowman"
+        document.styles["Normal"].font.name = "Times New Roman"
         document.styles["Normal"].font.size = Pt(10)
         document.styles["Normal"].paragraph_format.space_after = Pt(0)
         paragraph = document.add_paragraph()
