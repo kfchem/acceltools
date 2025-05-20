@@ -2,22 +2,21 @@ from pathlib import Path
 
 from setuptools import find_packages, setup
 
-with open("README.rst") as f:
-    readme = f.read()
-
 with Path("acceltools").joinpath("__init__.py").open("r") as f:
     _version = f.readline().split()[2].replace("'", "").replace('"', "")
 
 setup(
     name="acceltools",
     version=_version,
-    description="tools for ACCeL",
-    long_description=readme,
+    description="Extension tools for ACCeL: document export, ECD/UV/NMR analysis, plotting, and puckering.",
+    long_description=open("README.rst", encoding="utf-8").read(),
+    long_description_content_type="text/x-rst",
     author="Keisuke Fukaya",
     author_email="kfukaya@pu-toyama.ac.jp",
     url="https://github.com/kfchem/acceltools",
     license="MIT License",
-    install_requires=["accel>=0.1.0", "pandas", "scipy", "matplotlib"],
+    install_requires=["accel>=0.3.0", "scipy", "matplotlib"],
+    extras_require={"doc": ["python-docx"], "table": ["pandas"], "all": ["python-docx", "pandas"]},
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
